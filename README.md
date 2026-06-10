@@ -48,22 +48,53 @@ The examples below use the globally installed `face-sort` command. When
 running from a development checkout, prefix the same commands with `uv run`,
 for example `uv run face-sort list`.
 
-### Sort photos
+### Sort photos (Convenience Command)
 
 ```powershell
 face-sort sort D:\Photos --output D:\Sorted --cache D:\face-sort-cache
 ```
 
-The input directory contains the original media. The output directory contains
-the organized copies or hard links, and the cache stores the face embeddings,
-person registry, and output index. Keep the cache if you want names and person
-identities to remain stable across later runs.
+This sequentially executes both the **extract** and **organize** phases in one command.
 
-To checkpoint more frequently during a large scan:
+### Separate Extraction & Organization (Recommended)
+
+To run in separate modular phases:
+
+1. **Extract faces (Heavy processing)**:
+   Scans the input directory, hashes files, detects faces, extracts embeddings, and records everything in SQLite. Never moves or copies files on disk.
+   ```powershell
+   face-sort extract D:\Photos --cache D:\face-sort-cache
+   ```
+   To checkpoint more frequently during a large extraction:
+   ```powershell
+   face-sort extract D:\Photos --cache D:\face-sort-cache --checkpoint-interval 100
+   ```
+
+2. **Organize output (Fast processing)**:
+   Assigns faces to people, clusters remaining unknown faces using DBSCAN, updates the registry, and synchronizes files on disk (copy or hard links). Requires zero ML libraries (no GPU or ONNX runtime load) and runs in seconds.
+   ```powershell
+   face-sort organize --input D:\Photos --output D:\Sorted --cache D:\face-sort-cache
+   ```
+
+### Embedded HTTP API Server
+
+Start the lightweight FastAPI server:
 
 ```powershell
-face-sort sort D:\Photos --output D:\Sorted --cache D:\face-sort-cache --checkpoint-interval 100
+face-sort serve --cache D:\face-sort-cache --output D:\Sorted
 ```
+This runs a local HTTP API. The default host (`127.0.0.1`) and port (`9876`) can be customized via CLI options (`--host` and `--port`) or configured in `config.yaml` (`server_host` and `server_port`).
+
+#### Endpoints:
+* `GET /people` — Return list of all registered people.
+* `GET /stats` — Show statistics about people, media, and face records.
+* `GET /verify` — Check registry integrity and consistency.
+* `POST /rename` — Rename a person and update output folders instantly.
+* `POST /merge` — Merge two people and update output folders instantly.
+* `POST /split` — Split a person's faces back to unknown.
+* `POST /organize` — Trigger the organize phase.
+* `POST /extract` — Trigger face extraction asynchronously in a background task.
+* `GET /progress` — Poll the progress and status of the background extraction.
 
 ### List registered people
 
@@ -89,16 +120,8 @@ Use `rename PERSON NEW_NAME` to change a person's display name and output
 folder. Do not rename the folder manually because that would not update the
 person registry or output index.
 
-For example, after sorting with:
-
 ```powershell
-face-sort sort D:\Docs\pgrms\df-scrape\output --output D:\Docs\pgrms\to-del\output --cache D:\Docs\pgrms\to-del\cache
-```
-
-rename `Person_001` to `PersonX` with:
-
-```powershell
-face-sort rename Person_001 PersonX --input D:\Docs\pgrms\df-scrape\output --output D:\Docs\pgrms\to-del\output --cache D:\Docs\pgrms\to-del\cache
+face-sort rename Person_001 PersonX --input D:\Photos --output D:\Sorted --cache D:\face-sort-cache
 ```
 
 This updates the registry, moves or recreates the organized files under
@@ -139,10 +162,10 @@ face-sort split Person_005 --input D:\Photos --output D:\Sorted --cache D:\face-
 ```
 
 This removes the person from the registry and marks all of its faces as
-unknown. Run the original sort command again to recluster them:
+unknown. Run `organize` or `sort` again to recluster them:
 
 ```powershell
-face-sort sort D:\Photos --output D:\Sorted --cache D:\face-sort-cache
+face-sort organize --input D:\Photos --output D:\Sorted --cache D:\face-sort-cache
 ```
 
 `split` operates on the entire identity. It does not select individual photos
@@ -206,6 +229,8 @@ cache_enabled: true
 checkpoint_interval: 250
 gpu: true
 model_name: buffalo_l
+server_port: 9876
+server_host: "127.0.0.1"
 ```
 
 GPU mode requires an NVIDIA GPU and a compatible NVIDIA driver plus CUDA/cuDNN
@@ -213,15 +238,14 @@ runtime. The command exits with the available ONNX Runtime providers instead
 of silently using the CPU when CUDA is unavailable. Set `gpu: false` to force
 CPU execution.
 
-State is written atomically to:
+State is written atomically to a single SQLite database:
 
 ```text
 cache/
-  embeddings.pkl
-  people.json
-  file_index.json
-  clusters.json
+  faces.db
 ```
+
+*Note: On startup, if any legacy JSON/Pickle cache files exist (`people.json`, `embeddings.pkl`, etc.), face-sort automatically imports them into `faces.db` and backs them up with a `.bak` extension.*
 
 During sorting, extraction state and provisional output are checkpointed after
 `checkpoint_interval` newly processed media files. Files without a final
@@ -230,4 +254,6 @@ clustering pass moves them to their completed destinations. Restarting the
 same command resumes from the latest checkpoint.
 
 Person IDs are immutable. Display names and their output folders can be
-changed without affecting future recognition.
+changed without affecting future recognition. Recognition matches faces against
+up to 30 representative prototypes per person (automatically selected/clustered
+via K-Means).

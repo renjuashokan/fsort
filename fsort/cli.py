@@ -6,16 +6,7 @@ import sys
 from pathlib import Path
 
 from .config import Config
-from .organizer import build_index, sync_output
-from .pipeline import run_sort
-from .registry import (
-    merge_people,
-    recompute_centroids,
-    resolve_person,
-    split_person,
-    validate_display_name,
-)
-from .storage import RegistryStore
+from .service import FsortService
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -25,12 +16,33 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
+    # Legacy / convenience subcommand
     sort_parser = subparsers.add_parser("sort", help="scan and organize media")
     sort_parser.add_argument("input", type=Path)
     _add_paths(sort_parser, include_input=False)
     sort_parser.add_argument("--config", type=Path, default=Path("config.yaml"))
     sort_parser.add_argument("--checkpoint-interval", type=int)
     sort_parser.add_argument("--no-progress", action="store_true")
+
+    # Priority 2: Extract subcommand
+    extract_parser = subparsers.add_parser("extract", help="scan and extract face embeddings")
+    extract_parser.add_argument("input", type=Path)
+    _add_paths(extract_parser, include_input=False)
+    extract_parser.add_argument("--config", type=Path, default=Path("config.yaml"))
+    extract_parser.add_argument("--checkpoint-interval", type=int)
+    extract_parser.add_argument("--no-progress", action="store_true")
+
+    # Priority 2: Organize subcommand
+    organize_parser = subparsers.add_parser("organize", help="cluster faces and synchronize output folders")
+    _add_paths(organize_parser)
+    organize_parser.add_argument("--config", type=Path, default=Path("config.yaml"))
+
+    # Priority 3: Serve subcommand
+    serve_parser = subparsers.add_parser("serve", help="start the embedded HTTP API server")
+    serve_parser.add_argument("--host", help="host address to bind")
+    serve_parser.add_argument("--port", type=int, help="port to listen on")
+    _add_paths(serve_parser, include_input=False)
+    serve_parser.add_argument("--config", type=Path, default=Path("config.yaml"))
 
     for name, help_text in (
         ("list", "list registered people"),
@@ -69,149 +81,113 @@ def _add_paths(parser: argparse.ArgumentParser, include_input: bool = True) -> N
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        if args.command == "sort":
-            return _sort(args)
-        if args.command == "list":
-            return _list(args)
-        if args.command == "stats":
-            return _stats(args)
-        if args.command == "verify":
-            return _verify(args)
-        return _maintain(args)
+        if args.command == "serve":
+            return _serve(args)
+
+        config_path = getattr(args, "config", Path("config.yaml"))
+        config = Config.load(config_path)
+        if hasattr(args, "checkpoint_interval") and args.checkpoint_interval is not None:
+            config.checkpoint_interval = args.checkpoint_interval
+            config.validate()
+
+        service = FsortService(
+            cache_root=args.cache,
+            output_root=args.output,
+            config=config,
+        )
+
+        if args.command == "extract":
+            res = service.extract(args.input, show_progress=not args.no_progress)
+            print(
+                f"scanned={res['scanned']} processed={res['processed']} "
+                f"skipped={res['skipped']} failed={res['failed']} deleted={res['deleted']}"
+            )
+            return 0
+        elif args.command == "organize":
+            in_root = args.input if hasattr(args, "input") else None
+            res = service.organize(in_root)
+            print(
+                f"assigned={res['assigned']} people_created={res['people_created']} "
+                f"written={res['files_written']} removed={res['files_removed']}"
+            )
+            return 0
+        elif args.command == "sort":
+            res_e = service.extract(args.input, show_progress=not args.no_progress)
+            print(
+                f"extract: scanned={res_e['scanned']} processed={res_e['processed']} "
+                f"skipped={res_e['skipped']} failed={res_e['failed']} deleted={res_e['deleted']}"
+            )
+            res_o = service.organize(args.input)
+            print(
+                f"organize: assigned={res_o['assigned']} people_created={res_o['people_created']} "
+                f"written={res_o['files_written']} removed={res_o['files_removed']}"
+            )
+            return 0
+        elif args.command == "list":
+            people = service.list_people()
+            if not people:
+                print("No registered people.")
+                return 0
+            for person in sorted(people, key=lambda item: item.display_name.casefold()):
+                print(f"{person.id}  {person.display_name}  ({person.embedding_count} embeddings)")
+            return 0
+        elif args.command == "stats":
+            stats = service.stats()
+            print(f"people: {stats['people']}")
+            print(f"media files: {stats['media_files']}")
+            print(f"faces: {stats['faces']}")
+            print(f"assigned faces: {stats['assigned_faces']}")
+            print(f"unknown faces: {stats['unknown_faces']}")
+            return 0
+        elif args.command == "verify":
+            errors = service.verify()
+            if errors:
+                for error in errors:
+                    print(f"ERROR: {error}")
+                return 1
+            stats = service.stats()
+            print(
+                f"Registry OK: {stats['people']} people, {stats['media_files']} media files, "
+                f"{stats['assigned_faces']} assigned faces."
+            )
+            return 0
+        elif args.command == "rename":
+            in_root = args.input if hasattr(args, "input") else None
+            msg = service.rename(args.person, args.name, in_root)
+            print(msg)
+            return 0
+        elif args.command == "merge":
+            in_root = args.input if hasattr(args, "input") else None
+            msg = service.merge(args.target, args.source, in_root)
+            print(msg)
+            return 0
+        elif args.command == "split":
+            in_root = args.input if hasattr(args, "input") else None
+            msg = service.split(args.person, in_root)
+            print(msg)
+            return 0
     except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
 
 
-def _sort(args: argparse.Namespace) -> int:
+def _serve(args: argparse.Namespace) -> int:
+    import uvicorn
+
+    from .server import app
+
     config = Config.load(args.config)
-    if args.checkpoint_interval is not None:
-        config.checkpoint_interval = args.checkpoint_interval
-        config.validate()
-    result = run_sort(
-        input_root=args.input,
-        output_root=args.output,
-        cache_root=args.cache,
-        config=config,
-        show_progress=not args.no_progress,
-    )
-    print(
-        f"scanned={result.scanned} processed={result.processed} "
-        f"skipped={result.skipped} failed={result.failed} deleted={result.deleted}"
-    )
-    print(
-        f"assigned={result.assigned} people_created={result.people_created} "
-        f"written={result.files_written} removed={result.files_removed}"
-    )
+    host = args.host if args.host is not None else config.server_host
+    port = args.port if args.port is not None else config.server_port
+
+    app.state.cache_root = args.cache.resolve()
+    app.state.output_root = args.output.resolve()
+    app.state.config_path = args.config
+    uvicorn.run(app, host=host, port=port)
     return 0
 
 
-def _list(args: argparse.Namespace) -> int:
-    people = RegistryStore(args.cache.resolve()).load_people()
-    if not people:
-        print("No registered people.")
-        return 0
-    for person in sorted(people, key=lambda item: item.display_name.casefold()):
-        print(f"{person.id}  {person.display_name}  ({person.embedding_count} embeddings)")
-    return 0
-
-
-def _stats(args: argparse.Namespace) -> int:
-    store = RegistryStore(args.cache.resolve())
-    people = store.load_people()
-    records = store.load_embeddings()
-    faces = [face for record in records.values() for face in record.faces]
-    print(f"people: {len(people)}")
-    print(f"media files: {len(records)}")
-    print(f"faces: {len(faces)}")
-    print(f"assigned faces: {sum(face.person_id is not None for face in faces)}")
-    print(f"unknown faces: {sum(face.person_id is None for face in faces)}")
-    return 0
-
-
-def _verify(args: argparse.Namespace) -> int:
-    store = RegistryStore(args.cache.resolve())
-    people = store.load_people()
-    records = store.load_embeddings()
-    index = store.load_index()
-    errors: list[str] = []
-    ids = [person.id for person in people]
-    if len(ids) != len(set(ids)):
-        errors.append("duplicate person IDs")
-    names = [person.display_name.casefold() for person in people]
-    if len(names) != len(set(names)):
-        errors.append("duplicate display names")
-    valid_ids = set(ids)
-    counts = {person_id: 0 for person_id in ids}
-    for path, record in records.items():
-        for face in record.faces:
-            if face.person_id and face.person_id not in valid_ids:
-                errors.append(f"{path}: dangling person ID {face.person_id}")
-            elif face.person_id:
-                counts[face.person_id] += 1
-    for person in people:
-        if person.embedding_count != counts[person.id]:
-            errors.append(
-                f"{person.id}: count is {person.embedding_count}, expected {counts[person.id]}"
-            )
-        try:
-            validate_display_name(person.display_name)
-        except ValueError as error:
-            errors.append(f"{person.id}: {error}")
-    missing_index = set(records) - set(index)
-    if missing_index:
-        errors.append(f"{len(missing_index)} cached files missing from file index")
-    if errors:
-        for error in errors:
-            print(f"ERROR: {error}")
-        return 1
-    print(
-        f"Registry OK: {len(people)} people, {len(records)} media files, "
-        f"{sum(counts.values())} assigned faces."
-    )
-    return 0
-
-
-def _maintain(args: argparse.Namespace) -> int:
-    store = RegistryStore(args.cache.resolve())
-    people = store.load_people()
-    records = store.load_embeddings()
-    old_index = store.load_index()
-
-    if args.command == "rename":
-        person = resolve_person(people, args.person)
-        name = validate_display_name(args.name)
-        if any(
-            other.id != person.id
-            and other.display_name.casefold() == name.casefold()
-            for other in people
-        ):
-            raise ValueError(f"Display name already exists: {name}")
-        person.display_name = name
-        message = f"Renamed {person.id} to {name}."
-    elif args.command == "merge":
-        person = merge_people(people, records, args.target, args.source)
-        message = f"Merged into {person.id} ({person.display_name})."
-    else:
-        released = split_person(people, records, args.person)
-        message = f"Released {released} faces for reclustering."
-
-    recompute_centroids(people, records)
-    index = build_index(
-        records,
-        people,
-        _input_root(args.input, records),
-        args.output.resolve(),
-    )
-    sync_output(old_index, index, args.output.resolve(), copy_mode=True)
-    store.save(people, records, index)
-    print(message)
-    return 0
-
-
-def _input_root(
-    configured: Path | None, records: dict[str, object]
-) -> Path:
+def _input_root(configured: Path | None, records: dict[str, object]) -> Path:
     if configured is not None:
         return configured.resolve()
     paths = [Path(path).resolve() for path in records]
@@ -224,7 +200,3 @@ def _input_root(
         while common != common.parent and common not in path.parents:
             common = common.parent
     return common
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

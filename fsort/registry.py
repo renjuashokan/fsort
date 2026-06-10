@@ -49,19 +49,27 @@ def next_person_name(people: list[Person]) -> str:
 def assign_to_existing(
     faces: list[FaceRecord], people: list[Person], threshold: float
 ) -> int:
-    candidates = [person for person in people if person.centroid]
-    if not candidates:
+    prototypes_list = []
+    for person in people:
+        vectors = person.prototypes if person.prototypes else ([person.centroid] if person.centroid else [])
+        for vec in vectors:
+            prototypes_list.append((person.id, normalized(vec)))
+
+    if not prototypes_list:
         return 0
-    centroids = np.vstack([normalized(person.centroid) for person in candidates])
+
+    person_ids = [item[0] for item in prototypes_list]
+    prototypes_matrix = np.vstack([item[1] for item in prototypes_list])
+
     assigned = 0
     for face in faces:
         if face.person_id is not None:
             continue
         embedding = normalized(face.embedding)
-        distances = 1.0 - centroids @ embedding
+        distances = 1.0 - prototypes_matrix @ embedding
         nearest = int(np.argmin(distances))
         if float(distances[nearest]) < threshold:
-            face.person_id = candidates[nearest].id
+            face.person_id = person_ids[nearest]
             assigned += 1
     return assigned
 
@@ -120,8 +128,16 @@ def recompute_centroids(
         person.embedding_count = len(embeddings)
         if embeddings:
             person.centroid = normalized(np.mean(embeddings, axis=0)).tolist()
+            if len(embeddings) <= 30:
+                person.prototypes = [emb.tolist() for emb in embeddings]
+            else:
+                from sklearn.cluster import KMeans
+                kmeans = KMeans(n_clusters=30, n_init="auto", random_state=42)
+                kmeans.fit(embeddings)
+                person.prototypes = kmeans.cluster_centers_.tolist()
         else:
             person.centroid = []
+            person.prototypes = []
 
 
 def merge_people(

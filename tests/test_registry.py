@@ -80,3 +80,38 @@ def test_weighted_centroid_is_normalized() -> None:
 def test_unsafe_display_names_are_rejected(name: str) -> None:
     with pytest.raises(ValueError):
         validate_display_name(name)
+
+
+def test_multi_prototype_matching_and_kmeans() -> None:
+    person = Person.create("Person_001")
+    people = [person]
+
+    # Create 35 unique embeddings
+    embeddings = []
+    for i in range(35):
+        # Create vectors with small variations to simulate different face angles
+        val = 0.9 + (i * 0.002)
+        embeddings.append([val, 0.1])
+
+    # Construct MediaRecord
+    records = {
+        "pic.jpg": MediaRecord(
+            hash="h1",
+            mtime_ns=1,
+            size=1,
+            faces=[FaceRecord(embedding=emb, person_id=person.id) for emb in embeddings]
+        )
+    }
+
+    # Recompute: should trigger KMeans because count (35) > 30
+    recompute_centroids(people, records)
+
+    assert person.embedding_count == 35
+    assert len(person.prototypes) == 30
+    assert len(person.centroid) == 2
+
+    # Check matching: a new face closer to one of the prototypes is assigned successfully
+    new_face = FaceRecord(embedding=[0.93, 0.09])
+    assert assign_to_existing([new_face], people, threshold=0.1) == 1
+    assert new_face.person_id == person.id
+

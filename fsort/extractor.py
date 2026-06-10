@@ -64,7 +64,16 @@ class FaceExtractor:
             embedding = getattr(face, "normed_embedding", None)
             if embedding is None:
                 embedding = normalized(face.embedding)
-            records.append(FaceRecord(embedding=np.asarray(embedding).tolist()))
+            records.append(
+                FaceRecord(
+                    embedding=np.asarray(embedding).tolist(),
+                    bbox_x=int(box[0]),
+                    bbox_y=int(box[1]),
+                    bbox_w=int(width),
+                    bbox_h=int(height),
+                    confidence=float(face.det_score) if hasattr(face, "det_score") else None,
+                )
+            )
         return records
 
     def _model(self):

@@ -19,6 +19,8 @@ class Config:
     checkpoint_interval: int = 250
     gpu: bool = False
     model_name: str = "buffalo_l"
+    server_port: int = 9876
+    server_host: str = "127.0.0.1"
 
     @classmethod
     def load(cls, path: Path | None) -> "Config":
@@ -44,6 +46,7 @@ class Config:
             "min_samples": self.min_samples,
             "min_face_size": self.min_face_size,
             "checkpoint_interval": self.checkpoint_interval,
+            "server_port": self.server_port,
         }
         invalid = [name for name, value in positive.items() if value <= 0]
         if invalid:

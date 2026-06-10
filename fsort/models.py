@@ -21,6 +21,7 @@ class Person:
     created: str
     embedding_count: int = 0
     centroid: list[float] = field(default_factory=list)
+    prototypes: list[list[float]] = field(default_factory=list)
 
     @classmethod
     def create(cls, display_name: str) -> "Person":
@@ -38,6 +39,7 @@ class Person:
             created=value.get("created", ""),
             embedding_count=int(value.get("embedding_count", 0)),
             centroid=list(value.get("centroid", [])),
+            prototypes=list(value.get("prototypes", [])),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -47,6 +49,7 @@ class Person:
             "created": self.created,
             "embedding_count": self.embedding_count,
             "centroid": self.centroid,
+            "prototypes": self.prototypes,
         }
 
 
@@ -55,6 +58,12 @@ class FaceRecord:
     embedding: list[float]
     person_id: str | None = None
     frame: int | None = None
+    bbox_x: int | None = None
+    bbox_y: int | None = None
+    bbox_w: int | None = None
+    bbox_h: int | None = None
+    confidence: float | None = None
+    quality_score: float | None = None
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "FaceRecord":
@@ -62,6 +71,12 @@ class FaceRecord:
             embedding=list(value["embedding"]),
             person_id=value.get("person_id"),
             frame=value.get("frame"),
+            bbox_x=value.get("bbox_x"),
+            bbox_y=value.get("bbox_y"),
+            bbox_w=value.get("bbox_w"),
+            bbox_h=value.get("bbox_h"),
+            confidence=value.get("confidence"),
+            quality_score=value.get("quality_score"),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -71,6 +86,18 @@ class FaceRecord:
         }
         if self.frame is not None:
             result["frame"] = self.frame
+        if self.bbox_x is not None:
+            result["bbox_x"] = self.bbox_x
+        if self.bbox_y is not None:
+            result["bbox_y"] = self.bbox_y
+        if self.bbox_w is not None:
+            result["bbox_w"] = self.bbox_w
+        if self.bbox_h is not None:
+            result["bbox_h"] = self.bbox_h
+        if self.confidence is not None:
+            result["confidence"] = self.confidence
+        if self.quality_score is not None:
+            result["quality_score"] = self.quality_score
         return result
 
 
