@@ -1,0 +1,9 @@
+video_interval: 2
+match_threshold: 0.42
+dbscan_eps: 0.45
+min_samples: 2
+min_face_size: 80
+copy_mode: true
+cache_enabled: true
+gpu: true
+model_name: buffalo_l

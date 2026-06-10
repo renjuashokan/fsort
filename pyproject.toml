@@ -1,0 +1,35 @@
+[project]
+name = "fsort"
+version = "0.1.0"
+description = "Incremental, offline face-based photo organizer"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "insightface>=1.0.1",
+    "numpy>=2.4.6",
+    "onnxruntime>=1.26.0; sys_platform == 'darwin' or platform_machine not in 'AMD64,x86_64'",
+    "onnxruntime-gpu>=1.26.0; sys_platform != 'darwin' and platform_machine in 'AMD64,x86_64'",
+    "opencv-python>=4.13.0.92",
+    "pillow>=12.2.0",
+    "pyyaml>=6.0.2",
+    "scikit-learn>=1.9.0",
+    "tqdm>=4.68.2",
+]
+
+[project.scripts]
+face-sort = "fsort.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["fsort"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
