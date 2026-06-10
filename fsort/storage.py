@@ -37,6 +37,12 @@ class RegistryStore:
             raise ValueError(f"Invalid file index: {self.index_path}")
         return value
 
+    def load_clusters(self) -> dict[str, Any]:
+        value = self._load_json(self.clusters_path, {})
+        if not isinstance(value, dict):
+            raise ValueError(f"Invalid clusters cache: {self.clusters_path}")
+        return value
+
     def save(
         self,
         people: list[Person],

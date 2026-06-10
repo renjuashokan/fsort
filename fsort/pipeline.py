@@ -47,6 +47,7 @@ def run_sort(
     people = store.load_people()
     records = store.load_embeddings()
     old_index = store.load_index()
+    saved_clusters = store.load_clusters()
     result = SortResult()
 
     files = list(iter_media(input_root, excluded=[output_root, cache_root]))
@@ -62,39 +63,69 @@ def run_sort(
     extractor = extractor or FaceExtractor(config)
     iterator = tqdm(files, desc="Processing media", disable=not show_progress)
     new_faces = []
-    for path in iterator:
-        key = str(path)
-        stat = path.stat()
-        cached = records.get(key)
-        if (
-            config.cache_enabled
-            and cached
-            and cached.mtime_ns == stat.st_mtime_ns
-            and cached.size == stat.st_size
-        ):
-            result.skipped += 1
-            continue
-        try:
-            digest = _sha256(path)
-            if config.cache_enabled and cached and cached.hash == digest:
-                cached.mtime_ns = stat.st_mtime_ns
-                cached.size = stat.st_size
+    checkpoint_index = old_index
+    pending_checkpoint = bool(stale)
+
+    def checkpoint() -> None:
+        nonlocal checkpoint_index, pending_checkpoint
+        if not pending_checkpoint:
+            return
+        index = build_index(records, people, input_root, output_root)
+        # Save extraction work first so an interruption during copying can resume.
+        store.save(people, records, index, saved_clusters)
+        written, removed = sync_output(
+            checkpoint_index, index, output_root, config.copy_mode
+        )
+        result.files_written += written
+        result.files_removed += removed
+        checkpoint_index = index
+        pending_checkpoint = False
+        tqdm.write(f"checkpoint: saved {len(records)} media records")
+
+    try:
+        for path in iterator:
+            key = str(path)
+            stat = path.stat()
+            cached = records.get(key)
+            if (
+                config.cache_enabled
+                and cached
+                and cached.mtime_ns == stat.st_mtime_ns
+                and cached.size == stat.st_size
+            ):
                 result.skipped += 1
                 continue
-            faces = extractor.extract(path)
-        except (OSError, ValueError) as error:
-            tqdm.write(f"warning: skipped {path}: {error}")
-            result.failed += 1
-            continue
-        record = MediaRecord(
-            hash=digest,
-            mtime_ns=stat.st_mtime_ns,
-            size=stat.st_size,
-            faces=faces,
-        )
-        records[key] = record
-        new_faces.extend(faces)
-        result.processed += 1
+            try:
+                digest = _sha256(path)
+                if config.cache_enabled and cached and cached.hash == digest:
+                    cached.mtime_ns = stat.st_mtime_ns
+                    cached.size = stat.st_size
+                    pending_checkpoint = True
+                    result.skipped += 1
+                    continue
+                faces = extractor.extract(path)
+            except (OSError, ValueError) as error:
+                tqdm.write(f"warning: skipped {path}: {error}")
+                result.failed += 1
+                continue
+            record = MediaRecord(
+                hash=digest,
+                mtime_ns=stat.st_mtime_ns,
+                size=stat.st_size,
+                faces=faces,
+            )
+            records[key] = record
+            new_faces.extend(faces)
+            pending_checkpoint = True
+            result.processed += 1
+            if result.processed % config.checkpoint_interval == 0:
+                checkpoint()
+    except KeyboardInterrupt:
+        checkpoint()
+        tqdm.write("Interrupted; completed extraction work was checkpointed.")
+        raise
+
+    checkpoint()
 
     # Modified records have replaced their previously assigned embeddings.
     recompute_centroids(people, records)
@@ -104,9 +135,11 @@ def run_sort(
     result.people_created, clusters = cluster_unknowns(records, people, config)
     recompute_centroids(people, records)
     index = build_index(records, people, input_root, output_root)
-    result.files_written, result.files_removed = sync_output(
-        old_index, index, output_root, config.copy_mode
+    written, removed = sync_output(
+        checkpoint_index, index, output_root, config.copy_mode
     )
+    result.files_written += written
+    result.files_removed += removed
     store.save(people, records, index, clusters)
     return result
 

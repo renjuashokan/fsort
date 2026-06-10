@@ -16,6 +16,7 @@ class Config:
     min_face_size: int = 80
     copy_mode: bool = True
     cache_enabled: bool = True
+    checkpoint_interval: int = 250
     gpu: bool = False
     model_name: str = "buffalo_l"
 
@@ -42,6 +43,7 @@ class Config:
             "dbscan_eps": self.dbscan_eps,
             "min_samples": self.min_samples,
             "min_face_size": self.min_face_size,
+            "checkpoint_interval": self.checkpoint_interval,
         }
         invalid = [name for name, value in positive.items() if value <= 0]
         if invalid:

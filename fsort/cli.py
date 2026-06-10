@@ -29,6 +29,7 @@ def build_parser() -> argparse.ArgumentParser:
     sort_parser.add_argument("input", type=Path)
     _add_paths(sort_parser, include_input=False)
     sort_parser.add_argument("--config", type=Path, default=Path("config.yaml"))
+    sort_parser.add_argument("--checkpoint-interval", type=int)
     sort_parser.add_argument("--no-progress", action="store_true")
 
     for name, help_text in (
@@ -84,6 +85,9 @@ def main(argv: list[str] | None = None) -> int:
 
 def _sort(args: argparse.Namespace) -> int:
     config = Config.load(args.config)
+    if args.checkpoint_interval is not None:
+        config.checkpoint_interval = args.checkpoint_interval
+        config.validate()
     result = run_sort(
         input_root=args.input,
         output_root=args.output,

@@ -6,7 +6,33 @@ person centroids, and clusters remaining unknown faces with DBSCAN.
 
 ## Install
 
-The project uses Python 3.14 and `uv`:
+The project uses Python 3.14 and `uv`. Install it as a command-line tool:
+
+```powershell
+uv tool install --editable .
+```
+
+On Windows with an NVIDIA GPU, InsightFace's CPU ONNX Runtime dependency can
+overwrite the GPU package during tool installation. Reinstall the GPU wheel
+and its CUDA/cuDNN runtime DLLs last:
+
+```powershell
+uv pip install --python "$env:APPDATA\uv\tools\fsort\Scripts\python.exe" --reinstall "onnxruntime-gpu[cuda,cudnn]"
+```
+
+After installation, `face-sort` can be run from any directory without
+activating a virtual environment:
+
+```powershell
+face-sort sort D:\Photos --output D:\Sorted --cache D:\face-sort-cache
+```
+
+Run `uv tool upgrade fsort` after dependency or packaging changes, followed by
+the GPU reinstall command above when using NVIDIA. Because the project itself
+is installed editable, Python source changes are used immediately. To remove
+the command, run `uv tool uninstall fsort`.
+
+For project development, create the local environment with:
 
 ```powershell
 uv sync
@@ -20,6 +46,7 @@ the NVIDIA GPU build of ONNX Runtime. Other platforms use its CPU build.
 
 ```powershell
 uv run face-sort sort D:\Photos --output output --cache cache
+uv run face-sort sort D:\Photos --output output --cache cache --checkpoint-interval 100
 uv run face-sort list
 uv run face-sort rename 9c6dba74 Grandma
 uv run face-sort merge Person_003 Person_009
@@ -52,6 +79,7 @@ min_samples: 2
 min_face_size: 80
 copy_mode: true
 cache_enabled: true
+checkpoint_interval: 250
 gpu: true
 model_name: buffalo_l
 ```
@@ -70,6 +98,12 @@ cache/
   file_index.json
   clusters.json
 ```
+
+During sorting, extraction state and provisional output are checkpointed after
+`checkpoint_interval` newly processed media files. Files without a final
+person assignment are temporarily written under `Unknown`; the final
+clustering pass moves them to their completed destinations. Restarting the
+same command resumes from the latest checkpoint.
 
 Person IDs are immutable. Display names and their output folders can be
 changed without affecting future recognition.

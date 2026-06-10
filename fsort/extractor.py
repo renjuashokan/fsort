@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+import sys
+import ctypes
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -18,6 +21,8 @@ class FaceExtractor:
     def __init__(self, config: Config):
         self.config = config
         self._app = None
+        self._dll_directories: list[object] = []
+        self._dll_libraries: list[object] = []
 
     def extract(self, path: Path) -> list[FaceRecord]:
         if path.suffix.lower() in VIDEO_EXTENSIONS:
@@ -67,6 +72,11 @@ class FaceExtractor:
             import onnxruntime as ort
             from insightface.app import FaceAnalysis
 
+            if self.config.gpu and hasattr(ort, "preload_dlls"):
+                self._add_nvidia_dll_directories()
+                # Load CUDA and cuDNN installed in Python site-packages.
+                ort.preload_dlls(directory="")
+                self._preload_cudnn_sublibraries()
             available = ort.get_available_providers()
             if self.config.gpu:
                 if "CUDAExecutionProvider" not in available:
@@ -86,6 +96,44 @@ class FaceExtractor:
             ctx_id = 0 if self.config.gpu else -1
             self._app.prepare(ctx_id=ctx_id, det_size=(640, 640))
         return self._app
+
+    def _add_nvidia_dll_directories(self) -> None:
+        if sys.platform != "win32" or not hasattr(os, "add_dll_directory"):
+            return
+        for entry in map(Path, sys.path):
+            nvidia_root = entry / "nvidia"
+            if not nvidia_root.is_dir():
+                continue
+            for bin_dir in nvidia_root.glob("*/bin"):
+                if bin_dir.is_dir():
+                    self._dll_directories.append(
+                        os.add_dll_directory(str(bin_dir.resolve()))
+                    )
+
+    def _preload_cudnn_sublibraries(self) -> None:
+        if sys.platform != "win32":
+            return
+        load_order = (
+            "cudnn64_9.dll",
+            "cudnn_ops64_9.dll",
+            "cudnn_cnn64_9.dll",
+            "cudnn_adv64_9.dll",
+            "cudnn_graph64_9.dll",
+            "cudnn_heuristic64_9.dll",
+            "cudnn_engines_precompiled64_9.dll",
+            "cudnn_engines_runtime_compiled64_9.dll",
+            "cudnn_engines_tensor_ir64_9.dll",
+            "cudnn_ext64_9.dll",
+        )
+        for entry in map(Path, sys.path):
+            cudnn_bin = entry / "nvidia" / "cudnn" / "bin"
+            if not cudnn_bin.is_dir():
+                continue
+            for name in load_order:
+                path = cudnn_bin / name
+                if path.is_file():
+                    self._dll_libraries.append(ctypes.CDLL(str(path)))
+            return
 
 
 def iter_media(root: Path, excluded: list[Path] | None = None) -> Iterator[Path]:
