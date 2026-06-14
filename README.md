@@ -275,3 +275,72 @@ Person IDs are immutable. Display names and their output folders can be
 changed without affecting future recognition. Recognition matches faces against
 up to 30 representative prototypes per person (automatically selected/clustered
 via K-Means).
+
+## Debian Packaging & Deployment (Raspberry Pi & Linux)
+
+For permanent deployments on Linux (such as a Raspberry Pi), `face-sort` can be packaged as a native Debian archive (`.deb`) and run as a systemd service.
+
+### 1. Building the Debian Package
+
+Since building a `.deb` package requires Debian packaging utilities, run the build script on a Linux machine:
+
+```bash
+# Make the build script executable if needed
+chmod +x build-deb.sh
+
+# Run the build script (version defaults to 1.0.0)
+./build-deb.sh [VERSION]
+```
+
+* **Note on macOS**: If run on macOS, the script will compile the React frontend and stage the package structure in `build_deb_temp/fsort_1.0.0_all`. You can transfer this folder to your Linux device and build it using:
+  ```bash
+  dpkg-deb --build build_deb_temp/fsort_1.0.0_all
+  ```
+
+The compiled package will be created in the `outputs/` directory (e.g., `outputs/fsort_1.0.0_all.deb`).
+
+### 2. Installation
+
+Install the package on the target device:
+
+```bash
+sudo apt update
+sudo apt install ./outputs/fsort_1.0.0_all.deb
+```
+
+During installation, the package automatically:
+1. Installs system-level dependencies (including OpenCV dependencies: `libgl1-mesa-glx`, `libglib2.0-0`, and `ffmpeg`).
+2. Installs the application files to `/opt/fsort`.
+3. Creates a PEP 668 compliant virtual environment at `/opt/fsort/.venv` and installs the required Python packages inside it.
+4. Registers and starts a systemd service (`fsort.service`) serving on port `9876`.
+5. Pre-creates system state directories:
+   * **Cache/Database**: `/var/lib/fsort/cache`
+   * **Organized Output**: `/var/lib/fsort/sorted`
+
+### 3. Service Management
+
+The web application runs as a background service managed by `systemd`. You can control it using standard command utilities:
+
+```bash
+# Check status of the service
+sudo systemctl status fsort
+
+# Restart the service
+sudo systemctl restart fsort
+
+# Stop the service
+sudo systemctl stop fsort
+
+# View execution logs
+sudo journalctl -u fsort -f
+```
+
+### 4. Configuration
+
+When run as a service, the server looks for its configuration file at `/opt/fsort/config.yaml`. You can customize the server behavior (e.g., change the port, host bind address, toggle GPU, adjust match thresholds) by editing this file and restarting the service:
+
+```bash
+sudo nano /opt/fsort/config.yaml
+sudo systemctl restart fsort
+```
+

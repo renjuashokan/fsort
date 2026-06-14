@@ -1,0 +1,38 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+    configure)
+        # Create virtual environment if it doesn't exist
+        if [ ! -d "/opt/fsort/.venv" ]; then
+            echo "Creating Python virtual environment in /opt/fsort/.venv..."
+            python3 -m venv /opt/fsort/.venv
+        fi
+
+        # Upgrade pip and install package
+        echo "Installing fsort and dependencies inside the virtual environment..."
+        /opt/fsort/.venv/bin/pip install --upgrade pip
+        /opt/fsort/.venv/bin/pip install /opt/fsort/
+
+        # Create library/state directories
+        mkdir -p /var/lib/fsort/cache
+        mkdir -p /var/lib/fsort/sorted
+
+        # Reload systemd to recognize the new service
+        systemctl daemon-reload
+
+        # Enable and start the service
+        systemctl enable fsort.service
+        systemctl start fsort.service || true
+    ;;
+
+    abort-upgrade|abort-remove|abort-deconfigure)
+    ;;
+
+    *)
+        echo "postinst called with unknown argument \`$1'" >&2
+        exit 1
+    ;;
+esac
+
+exit 0

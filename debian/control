@@ -1,0 +1,17 @@
+Source: fsort
+Section: utils
+Priority: optional
+Maintainer: Renju Ashokan <renjuashokan@gmail.com>
+Build-Depends: debhelper-compat (= 12)
+Standards-Version: 4.5.0
+Homepage: https://github.com/renjuashokan/fsort
+
+Package: fsort
+Architecture: all
+Depends: python3, python3-venv, python3-pip, libgl1-mesa-glx, libglib2.0-0, ffmpeg
+Description: Incremental offline face-based photo and video organizer
+ face-sort is a local, offline face organizer with persistent person IDs.
+ It only extracts faces from new or modified media, matches them against
+ saved person centroids, and clusters remaining unknown faces with DBSCAN.
+ .
+ This package includes the self-hosted Web UI and systemd services.

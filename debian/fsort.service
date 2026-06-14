@@ -1,0 +1,14 @@
+[Unit]
+Description=FaceSort Web UI Server
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/fsort
+ExecStart=/opt/fsort/.venv/bin/face-sort serve --cache /var/lib/fsort/cache --output /var/lib/fsort/sorted --host 0.0.0.0 --port 9876
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,28 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+    purge)
+        # Stop and disable the service before removing data
+        systemctl stop fsort.service || true
+        systemctl disable fsort.service || true
+        systemctl daemon-reload
+        # Remove the application and cache folders
+        rm -rf /opt/fsort
+        rm -rf /var/lib/fsort
+    ;;
+
+    remove|upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
+        # Stop and disable the service
+        systemctl stop fsort.service || true
+        systemctl disable fsort.service || true
+        systemctl daemon-reload
+    ;;
+
+    *)
+        echo "postrm called with unknown argument \`$1'" >&2
+        exit 1
+    ;;
+esac
+
+exit 0
