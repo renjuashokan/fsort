@@ -67,6 +67,7 @@ You can customize the directories, port, host, and configuration file path by ov
    Environment=FSORT_CACHE=/path/to/your/cache
    Environment=FSORT_HOST=127.0.0.1
    Environment=FSORT_CONFIG=/opt/fsort/config.yaml
+   Environment=FSORT_HDD_ROOT=/mnt/sda1
    ```
 
 3. Restart the service to apply changes:

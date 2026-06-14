@@ -15,3 +15,4 @@ cache/
 output/
 outputs/
 build_deb_temp/
+nohup.out
