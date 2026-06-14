@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import shutil
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 from .models import MediaRecord, Person
 from .registry import validate_display_name
@@ -37,7 +37,14 @@ def build_index(
         try:
             relative = source.relative_to(input_root)
         except ValueError:
-            relative = Path(source.name)
+            # source may be a Windows-style path (e.g. D:\...\photo.jpg) running on Linux.
+            # Path.name would return the full string since \ isn't a separator on Linux.
+            # PureWindowsPath correctly extracts just the filename across platforms.
+            if "\\" in source_value:
+                win_name = PureWindowsPath(source_value).name
+                relative = Path(win_name) if win_name else Path(source.name)
+            else:
+                relative = Path(source.name)
         destination = output_root / folder / relative
         index[source_value] = {
             "hash": record.hash,

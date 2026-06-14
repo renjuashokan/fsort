@@ -15,7 +15,7 @@ class FsortService:
         self.cache_root = cache_root.resolve()
         self.output_root = output_root.resolve()
         self.config = config
-        self.store = RegistryStore(self.cache_root)
+        self.store = RegistryStore(self.cache_root, hdd_root=config.hdd_root)
 
     def extract(
         self,

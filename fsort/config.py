@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,11 @@ class Config:
     model_name: str = "buffalo_l"
     server_port: int = 9876
     server_host: str = "127.0.0.1"
+    # Mount point of the HDD on the current machine.
+    # Paths in the DB are stored relative to this root so the
+    # same database works on Windows and Linux.
+    # Leave empty to use absolute paths (default / single-machine setup).
+    hdd_root: str = ""
 
     @classmethod
     def load(cls, path: Path | None) -> "Config":
@@ -44,6 +50,7 @@ class Config:
                         "model_name": "buffalo_l",
                         "server_port": 9876,
                         "server_host": "127.0.0.1",
+                        "hdd_root": "",
                     }
                     with home_config.open("w", encoding="utf-8") as handle:
                         yaml.safe_dump(default_data, handle, default_flow_style=False)
@@ -62,6 +69,10 @@ class Config:
         if unknown:
             raise ValueError(f"Unknown configuration keys: {', '.join(unknown)}")
         config = cls(**values)
+        # Environment variable overrides config file (useful for systemd service)
+        env_hdd_root = os.environ.get("FSORT_HDD_ROOT", "").strip()
+        if env_hdd_root:
+            config.hdd_root = env_hdd_root
         config.validate()
         return config
 

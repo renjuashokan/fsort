@@ -39,9 +39,50 @@ def deserialize_prototypes(blob: bytes | None) -> list[list[float]]:
 
 
 class RegistryStore:
-    def __init__(self, cache_dir: Path):
+    def __init__(self, cache_dir: Path, hdd_root: str = ""):
         self.cache_dir = cache_dir.resolve()
         self.db_path = self.cache_dir / "faces.db"
+        # Normalize hdd_root: always use forward slashes for comparison
+        self._hdd_root = hdd_root.replace("\\", "/").rstrip("/") if hdd_root else ""
+
+    # ------------------------------------------------------------------
+    # Path helpers: convert between absolute (runtime) ↔ stored (relative)
+    # ------------------------------------------------------------------
+
+    def _to_stored(self, abs_path: str) -> str:
+        """Strip hdd_root and normalize to POSIX for storage.
+
+        On Windows, D:\\Docs\\photo.jpg  → Docs/photo.jpg
+        On Linux,   /mnt/hdd/Docs/photo.jpg → Docs/photo.jpg
+        If hdd_root is empty, the path is stored as-is.
+        """
+        if not self._hdd_root:
+            return abs_path
+        from pathlib import PurePosixPath, PureWindowsPath
+        # Normalize source path to forward slashes for comparison
+        normalized = abs_path.replace("\\", "/")
+        root = self._hdd_root  # already normalized in __init__
+        if normalized.lower().startswith(root.lower() + "/") or normalized.lower() == root.lower():
+            rel = normalized[len(root):].lstrip("/")
+            return rel  # already POSIX (forward slashes)
+        # Can't relativize (different drive/root) — store as-is
+        return abs_path
+
+    def _to_abs(self, stored_path: str) -> str:
+        """Reconstruct absolute path from a stored path.
+
+        Detects whether stored_path is already absolute (old format)
+        and returns it unchanged for backward compatibility.
+        """
+        if not stored_path:
+            return stored_path
+        # Already absolute: Linux (/...) or Windows (X:\...) — backward compat
+        if stored_path.startswith("/") or (len(stored_path) > 1 and stored_path[1] == ":"):
+            return stored_path
+        # Relative path — prepend hdd_root
+        if self._hdd_root:
+            return self._hdd_root.replace("\\", "/").rstrip("/") + "/" + stored_path
+        return stored_path
 
     def _get_connection(self) -> sqlite3.Connection:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
@@ -227,7 +268,8 @@ class RegistryStore:
 
             for row in media_rows:
                 m_id = row["id"]
-                path = row["path"]
+                # Reconstruct absolute path for the current platform
+                path = self._to_abs(row["path"])
                 records[path] = MediaRecord(
                     hash=row["sha256"] or "",
                     mtime_ns=row["mtime"] or 0,
@@ -254,13 +296,14 @@ class RegistryStore:
 
             for row in media_rows:
                 m_id = row["id"]
-                path = row["path"]
-                destination = row["destination"]
+                # Reconstruct absolute path for the current platform
+                path = self._to_abs(row["path"])
+                destination = self._to_abs(row["destination"]) if row["destination"] else ""
                 person_ids = sorted(list(persons_by_media.get(m_id, set())))
                 index[path] = {
                     "hash": row["sha256"] or "",
                     "persons": person_ids,
-                    "destination": destination if destination is not None else "",
+                    "destination": destination,
                 }
         return index
 
@@ -321,16 +364,18 @@ class RegistryStore:
                     )
                 )
 
-            active_paths = set(records.keys())
-            if active_paths:
+            # Build stored (relative) path set for the DELETE query
+            active_stored_paths = {self._to_stored(p) for p in records.keys()}
+            if active_stored_paths:
                 conn.execute("CREATE TEMP TABLE IF NOT EXISTS active_media_paths (path TEXT UNIQUE)")
                 conn.execute("DELETE FROM active_media_paths")
-                conn.executemany("INSERT INTO active_media_paths (path) VALUES (?)", [(p,) for p in active_paths])
+                conn.executemany("INSERT INTO active_media_paths (path) VALUES (?)", [(p,) for p in active_stored_paths])
                 conn.execute("DELETE FROM media WHERE path NOT IN (SELECT path FROM active_media_paths)")
             else:
                 conn.execute("DELETE FROM media")
 
             for path, record in records.items():
+                stored_path = self._to_stored(path)
                 suffix = Path(path).suffix.lower()
                 from .extractor import VIDEO_EXTENSIONS
                 media_type = "video" if suffix in VIDEO_EXTENSIONS else "image"
@@ -339,7 +384,7 @@ class RegistryStore:
                 if path in index:
                     dest_val = index[path].get("destination")
                     if dest_val:
-                        destination = str(dest_val)
+                        destination = self._to_stored(str(dest_val))
 
                 conn.execute(
                     """
@@ -353,10 +398,10 @@ class RegistryStore:
                         processed = 1,
                         destination = excluded.destination
                     """,
-                    (path, record.hash, record.mtime_ns, record.size, media_type, destination)
+                    (stored_path, record.hash, record.mtime_ns, record.size, media_type, destination)
                 )
 
-                media_row = conn.execute("SELECT id FROM media WHERE path = ?", (path,)).fetchone()
+                media_row = conn.execute("SELECT id FROM media WHERE path = ?", (stored_path,)).fetchone()
                 media_id = media_row["id"]
 
                 conn.execute("DELETE FROM faces WHERE media_id = ?", (media_id,))

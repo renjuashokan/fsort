@@ -74,6 +74,23 @@ def build_parser() -> argparse.ArgumentParser:
         help="generate/regenerate thumbnails for registered people",
     )
     _add_paths(thumbnails)
+
+    remap = subparsers.add_parser(
+        "remap-paths",
+        help="migrate existing DB paths from one HDD mount point to another (one-time fix for Windows→Linux moves)",
+    )
+    remap.add_argument(
+        "--from-root",
+        required=True,
+        help="old HDD mount point (e.g. 'D:\\' on Windows or '/old/mount')",
+    )
+    remap.add_argument(
+        "--to-root",
+        required=True,
+        help="new HDD mount point on this machine (e.g. '/mnt/sda1')",
+    )
+    remap.add_argument("--cache", type=Path, default=Path("cache"))
+    remap.add_argument("--dry-run", action="store_true", help="show what would change without modifying the DB")
     return parser
 
 
@@ -89,6 +106,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "serve":
             return _serve(args)
+        if args.command == "remap-paths":
+            return _remap_paths(args)
 
         config_path = getattr(args, "config", Path("config.yaml"))
         config = Config.load(config_path)
@@ -176,6 +195,8 @@ def main(argv: list[str] | None = None) -> int:
             count = service.generate_thumbnails()
             print(f"Generated/updated thumbnails for {count} people.")
             return 0
+        elif args.command == "remap-paths":
+            return _remap_paths(args)
     except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
@@ -194,6 +215,71 @@ def _serve(args: argparse.Namespace) -> int:
     app.state.output_root = args.output.resolve()
     app.state.config_path = args.config
     uvicorn.run(app, host=host, port=port)
+    return 0
+
+
+def _remap_paths(args: argparse.Namespace) -> int:
+    """Rewrite all stored paths in the DB from one HDD root to another.
+
+    Useful when moving the HDD between Windows and Linux (or changing mount
+    points) so you don't need to re-run extraction.
+
+    Example:
+        face-sort remap-paths \\
+            --from-root "D:\\" \\
+            --to-root "/mnt/sda1" \\
+            --cache /mnt/sda1/cache
+    """
+    import sqlite3
+
+    cache_dir = args.cache.resolve()
+    db_path = cache_dir / "faces.db"
+    if not db_path.exists():
+        print(f"error: database not found at {db_path}", file=sys.stderr)
+        return 2
+
+    from_root = args.from_root.replace("\\", "/").rstrip("/")
+    to_root = args.to_root.replace("\\", "/").rstrip("/")
+    dry_run = args.dry_run
+
+    def _remap(value: str | None) -> str | None:
+        if not value:
+            return value
+        normalized = value.replace("\\", "/")
+        if normalized.lower().startswith(from_root.lower() + "/") or normalized.lower() == from_root.lower():
+            remainder = normalized[len(from_root):].lstrip("/")
+            return to_root + "/" + remainder
+        return value  # not under from_root, leave unchanged
+
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute("SELECT id, path, destination FROM media").fetchall()
+        updated = 0
+        for row in rows:
+            new_path = _remap(row["path"])
+            new_dest = _remap(row["destination"])
+            if new_path != row["path"] or new_dest != row["destination"]:
+                updated += 1
+                if dry_run:
+                    print(f"  path: {row['path']!r}")
+                    print(f"     -> {new_path!r}")
+                    if new_dest != row["destination"]:
+                        print(f"  dest: {row['destination']!r}")
+                        print(f"     -> {new_dest!r}")
+                else:
+                    conn.execute(
+                        "UPDATE media SET path = ?, destination = ? WHERE id = ?",
+                        (new_path, new_dest, row["id"]),
+                    )
+        if dry_run:
+            print(f"\nDry run: {updated} of {len(rows)} rows would be updated.")
+        else:
+            conn.commit()
+            print(f"Remapped {updated} of {len(rows)} media rows.")
+            print(f"  {from_root!r}  →  {to_root!r}")
+    finally:
+        conn.close()
     return 0
 
 

@@ -8,3 +8,6 @@ cache_enabled: true
 checkpoint_interval: 250
 gpu: false
 model_name: buffalo_l
+# Mount point of the HDD on this machine.
+# Set via FSORT_HDD_ROOT env var in: sudo systemctl edit fsort
+hdd_root: "/mnt/sda1"
