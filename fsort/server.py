@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
@@ -452,7 +453,17 @@ def api_get_search(query: str) -> dict[str, Any]:
 
 # --- Frontend Static Assets Serving & SPA Fallback ---
 
-ui_dist = Path(__file__).parent.parent / "ui" / "dist"
+# Resolve UI dist directory:
+#   1. FSORT_UI_DIST env var (set by systemd for packaged installs)
+#   2. Known installed path (/opt/fsort/ui/dist)
+#   3. Source-relative path (for local development)
+_ui_dist_env = os.environ.get("FSORT_UI_DIST")
+if _ui_dist_env:
+    ui_dist = Path(_ui_dist_env)
+else:
+    _installed_dist = Path("/opt/fsort/ui/dist")
+    _source_dist = Path(__file__).parent.parent / "ui" / "dist"
+    ui_dist = _installed_dist if _installed_dist.is_dir() else _source_dist
 
 # Serve static bundles (JS, CSS)
 if ui_dist.is_dir():

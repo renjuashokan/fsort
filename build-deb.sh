@@ -21,7 +21,7 @@ echo "Architecture: $PKG_ARCH"
 # Build the frontend first (Vite production build)
 echo "Building React frontend..."
 if [ -d "ui" ]; then
-    (cd ui && npm run build)
+    (cd ui && npm install && npm run build)
 else
     echo "Error: ui directory not found"
     exit 1
@@ -52,26 +52,84 @@ if [ -d "debian" ]; then
     cp -r debian/* "${STAGING_DIR}/DEBIAN/"
     # Remove fsort.service from DEBIAN if it was copied there (it belongs in systemd)
     rm -f "${STAGING_DIR}/DEBIAN/fsort.service"
+
+    # Extract source stanza fields before removing it
+    MAINTAINER=$(grep "^Maintainer:" "${STAGING_DIR}/DEBIAN/control" | head -1)
+    SECTION=$(grep "^Section:" "${STAGING_DIR}/DEBIAN/control" | head -1)
+    PRIORITY=$(grep "^Priority:" "${STAGING_DIR}/DEBIAN/control" | head -1)
+    HOMEPAGE=$(grep "^Homepage:" "${STAGING_DIR}/DEBIAN/control" | head -1)
+
+    # Extract only the Package stanza from control file (remove Source stanza)
+    sed -n '/^Package:/,$p' "$CONTROL_FILE" > "$CONTROL_TMP"
+    mv "$CONTROL_TMP" "$CONTROL_FILE"
+
+    # Add Homepage field after Package field if it's missing
+    if ! grep -q "^Homepage:" "$CONTROL_FILE" && [ -n "$HOMEPAGE" ]; then
+        sed -i.bak "1a\\
+$HOMEPAGE" "$CONTROL_FILE" 2>/dev/null || sed -i "" "1a\\
+$HOMEPAGE
+" "$CONTROL_FILE"
+        rm -f "${CONTROL_FILE}.bak"
+    fi
+
+    # Add Maintainer field after Package field if it's missing
+    if ! grep -q "^Maintainer:" "$CONTROL_FILE" && [ -n "$MAINTAINER" ]; then
+        sed -i.bak "1a\\
+$MAINTAINER" "$CONTROL_FILE" 2>/dev/null || sed -i "" "1a\\
+$MAINTAINER
+" "$CONTROL_FILE"
+        rm -f "${CONTROL_FILE}.bak"
+    fi
+
+    # Add Priority field after Package field if it's missing
+    if ! grep -q "^Priority:" "$CONTROL_FILE" && [ -n "$PRIORITY" ]; then
+        sed -i.bak "1a\\
+$PRIORITY" "$CONTROL_FILE" 2>/dev/null || sed -i "" "1a\\
+$PRIORITY
+" "$CONTROL_FILE"
+        rm -f "${CONTROL_FILE}.bak"
+    fi
+
+    # Add Section field after Package field if it's missing
+    if ! grep -q "^Section:" "$CONTROL_FILE" && [ -n "$SECTION" ]; then
+        sed -i.bak "1a\\
+$SECTION" "$CONTROL_FILE" 2>/dev/null || sed -i "" "1a\\
+$SECTION
+" "$CONTROL_FILE"
+        rm -f "${CONTROL_FILE}.bak"
+    fi
+
+    # Remove debhelper variable placeholders
+    sed 's/${shlibs:Depends}, //g' "$CONTROL_FILE" > "$CONTROL_TMP"
+    mv "$CONTROL_TMP" "$CONTROL_FILE"
+
+    sed 's/${misc:Depends}, //g' "$CONTROL_FILE" > "$CONTROL_TMP"
+    mv "$CONTROL_TMP" "$CONTROL_FILE"
+
+    sed 's/${shlibs:Depends}//g' "$CONTROL_FILE" > "$CONTROL_TMP"
+    mv "$CONTROL_TMP" "$CONTROL_FILE"
+
+    sed 's/${misc:Depends}//g' "$CONTROL_FILE" > "$CONTROL_TMP"
+    mv "$CONTROL_TMP" "$CONTROL_FILE"
+
+    # Clean up any trailing commas or spaces in Depends
+    sed 's/Depends: , /Depends: /g' "$CONTROL_FILE" > "$CONTROL_TMP"
+    mv "$CONTROL_TMP" "$CONTROL_FILE"
 else
     echo "Error: debian directory not found!"
     exit 1
 fi
 
-# Process control file to replace version
-sed "s/Version: .*/Version: ${PKG_VERSION}/" "$CONTROL_FILE" > "$CONTROL_TMP" || true
-if [ -f "$CONTROL_TMP" ]; then
-    mv "$CONTROL_TMP" "$CONTROL_FILE"
-else
-    # If version line wasn't in template, add it
-    sed -i.bak "2i\\
+# Process control file to replace variables/architecture
+sed "s/Architecture: .*/Architecture: ${PKG_ARCH}/" "$CONTROL_FILE" > "$CONTROL_TMP"
+mv "$CONTROL_TMP" "$CONTROL_FILE"
+
+# Add Version field after Package field
+sed -i.bak "2i\\
 Version: ${PKG_VERSION}" "$CONTROL_FILE" 2>/dev/null || sed -i "" "2i\\
 Version: ${PKG_VERSION}
 " "$CONTROL_FILE"
-    rm -f "${CONTROL_FILE}.bak"
-fi
-
-# Ensure there is a newline at the end of the control file
-echo "" >> "$CONTROL_FILE"
+rm -f "${CONTROL_FILE}.bak"
 
 # Copy service file
 echo "Copying service file..."

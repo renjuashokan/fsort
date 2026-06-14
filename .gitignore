@@ -13,4 +13,5 @@ wheels/
 # Application state and generated output
 cache/
 output/
+outputs/
 build_deb_temp/

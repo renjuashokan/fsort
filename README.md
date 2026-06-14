@@ -292,55 +292,10 @@ chmod +x build-deb.sh
 ./build-deb.sh [VERSION]
 ```
 
-* **Note on macOS**: If run on macOS, the script will compile the React frontend and stage the package structure in `build_deb_temp/fsort_1.0.0_all`. You can transfer this folder to your Linux device and build it using:
-  ```bash
-  dpkg-deb --build build_deb_temp/fsort_1.0.0_all
-  ```
 
-The compiled package will be created in the `outputs/` directory (e.g., `outputs/fsort_1.0.0_all.deb`).
+### 2. Installation & Configuration
 
-### 2. Installation
+For detailed, step-by-step instructions on installing, configuring systemd environment overrides, managing service logs, and uninstalling the Debian package, please refer to the dedicated guide:
 
-Install the package on the target device:
-
-```bash
-sudo apt update
-sudo apt install ./outputs/fsort_1.0.0_all.deb
-```
-
-During installation, the package automatically:
-1. Installs system-level dependencies (including OpenCV dependencies: `libgl1-mesa-glx`, `libglib2.0-0`, and `ffmpeg`).
-2. Installs the application files to `/opt/fsort`.
-3. Creates a PEP 668 compliant virtual environment at `/opt/fsort/.venv` and installs the required Python packages inside it.
-4. Registers and starts a systemd service (`fsort.service`) serving on port `9876`.
-5. Pre-creates system state directories:
-   * **Cache/Database**: `/var/lib/fsort/cache`
-   * **Organized Output**: `/var/lib/fsort/sorted`
-
-### 3. Service Management
-
-The web application runs as a background service managed by `systemd`. You can control it using standard command utilities:
-
-```bash
-# Check status of the service
-sudo systemctl status fsort
-
-# Restart the service
-sudo systemctl restart fsort
-
-# Stop the service
-sudo systemctl stop fsort
-
-# View execution logs
-sudo journalctl -u fsort -f
-```
-
-### 4. Configuration
-
-When run as a service, the server looks for its configuration file at `/opt/fsort/config.yaml`. You can customize the server behavior (e.g., change the port, host bind address, toggle GPU, adjust match thresholds) by editing this file and restarting the service:
-
-```bash
-sudo nano /opt/fsort/config.yaml
-sudo systemctl restart fsort
-```
+👉 [docs/DEBIAN-INSTALL.md](docs/DEBIAN-INSTALL.md)
 
