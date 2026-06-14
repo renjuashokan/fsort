@@ -6,5 +6,5 @@ min_face_size: 80
 copy_mode: true
 cache_enabled: true
 checkpoint_interval: 250
-gpu: true
+gpu: false
 model_name: buffalo_l

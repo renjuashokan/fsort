@@ -88,3 +88,33 @@ def test_config_server_port_and_host(tmp_path: Path) -> None:
     config = Config.load(config_file)
     assert config.server_port == 12345
     assert config.server_host == "0.0.0.0"
+
+
+def test_config_home_fallback(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+    # Mock exists() to return False for config.yaml so fallback is triggered
+    original_exists = Path.exists
+    def mock_exists(self):
+        if self == Path("config.yaml"):
+            return False
+        return original_exists(self)
+    monkeypatch.setattr(Path, "exists", mock_exists)
+
+    config = Config.load(Path("config.yaml"))
+    home_config = tmp_path / ".fsort" / "config.yaml"
+    assert home_config.exists()
+    assert config.server_port == 9876
+    assert config.server_host == "127.0.0.1"
+
+    # For the second load, we want config.yaml to still not exist, but home_config to exist
+    def mock_exists_2(self):
+        if self == Path("config.yaml"):
+            return False
+        return original_exists(self)
+    monkeypatch.setattr(Path, "exists", mock_exists_2)
+
+    home_config.write_text("server_port: 8888\ngpu: false\n", encoding="utf-8")
+    config2 = Config.load(Path("config.yaml"))
+    assert config2.server_port == 8888
+    assert config2.gpu is False

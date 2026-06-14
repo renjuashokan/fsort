@@ -68,6 +68,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     split.add_argument("person")
     _add_paths(split)
+
+    thumbnails = subparsers.add_parser(
+        "thumbnails",
+        help="generate/regenerate thumbnails for registered people",
+    )
+    _add_paths(thumbnails)
     return parser
 
 
@@ -165,6 +171,10 @@ def main(argv: list[str] | None = None) -> int:
             in_root = args.input if hasattr(args, "input") else None
             msg = service.split(args.person, in_root)
             print(msg)
+            return 0
+        elif args.command == "thumbnails":
+            count = service.generate_thumbnails()
+            print(f"Generated/updated thumbnails for {count} people.")
             return 0
     except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as error:
         print(f"error: {error}", file=sys.stderr)

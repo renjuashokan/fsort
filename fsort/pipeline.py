@@ -50,7 +50,7 @@ def run_sort(
     saved_clusters = store.load_clusters()
     result = SortResult()
 
-    files = list(iter_media(input_root, excluded=[output_root, cache_root]))
+    files = sorted(iter_media(input_root, excluded=[output_root, cache_root]))
     result.scanned = len(files)
     current = {str(path) for path in files}
     stale = set(records) - current

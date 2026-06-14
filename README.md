@@ -171,6 +171,18 @@ face-sort organize --input D:\Photos --output D:\Sorted --cache D:\face-sort-cac
 `split` operates on the entire identity. It does not select individual photos
 or faces from that identity.
 
+### Generate face thumbnails
+
+During the `organize` or `sort` phases (as well as `rename`, `merge`, and `split` actions), `face-sort` automatically extracts a representative face thumbnail for each person and saves it as `thumbnail_fsort.jpg` within their output folder.
+
+The system selects the face whose embedding is closest (using cosine distance) to the person's centroid embedding, crops it with a 15% margin padding, and resizes it to `256x256` pixels.
+
+To generate or regenerate thumbnails for already sorted/organized folders without performing any other organization tasks, run the `thumbnails` command:
+
+```powershell
+face-sort thumbnails --output D:\Sorted --cache D:\face-sort-cache
+```
+
 ### Show statistics
 
 ```powershell
@@ -216,7 +228,9 @@ falls back to copying. It never removes source media.
 
 ## Configuration
 
-Create `config.yaml` as needed:
+On startup, `face-sort` checks for `config.yaml` in the current working directory. If it is not found, the tool falls back to `~/.fsort/config.yaml` (which is automatically created with default settings on the first run if it does not already exist).
+
+Create/modify `config.yaml` or `~/.fsort/config.yaml` as needed:
 
 ```yaml
 video_interval: 2

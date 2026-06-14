@@ -24,6 +24,33 @@ class Config:
 
     @classmethod
     def load(cls, path: Path | None) -> "Config":
+        if path == Path("config.yaml") and not path.exists():
+            home_config = Path.home() / ".fsort" / "config.yaml"
+            if home_config.exists():
+                path = home_config
+            else:
+                try:
+                    home_config.parent.mkdir(parents=True, exist_ok=True)
+                    default_data = {
+                        "video_interval": 2.0,
+                        "match_threshold": 0.42,
+                        "dbscan_eps": 0.45,
+                        "min_samples": 2,
+                        "min_face_size": 80,
+                        "copy_mode": True,
+                        "cache_enabled": True,
+                        "checkpoint_interval": 250,
+                        "gpu": False,
+                        "model_name": "buffalo_l",
+                        "server_port": 9876,
+                        "server_host": "127.0.0.1",
+                    }
+                    with home_config.open("w", encoding="utf-8") as handle:
+                        yaml.safe_dump(default_data, handle, default_flow_style=False)
+                    path = home_config
+                except Exception:
+                    return cls()
+
         if path is None or not path.exists():
             return cls()
         with path.open("r", encoding="utf-8") as handle:
