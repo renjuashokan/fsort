@@ -420,3 +420,232 @@ class FsortService:
         if missing_index:
             errors.append(f"{len(missing_index)} cached files missing from file index")
         return errors
+
+    def create_person(self, name: str) -> Person:
+        from .registry import validate_display_name
+        people = self.store.load_people()
+        name = validate_display_name(name)
+        if any(p.display_name.casefold() == name.casefold() for p in people):
+            raise ValueError(f"Person already exists: {name}")
+        person = Person.create(name)
+        people.append(person)
+        records = self.store.load_embeddings()
+        index = self.store.load_index()
+        self.store.save(people, records, index)
+        return person
+
+    def list_people_paginated(
+        self,
+        skip: int,
+        limit: int,
+        sort_by: str,
+        order: str,
+        search: str | None = None,
+    ) -> tuple[int, list[dict[str, Any]]]:
+        self.store._init_db()
+        search_pattern = f"%{search}%" if search else "%"
+        
+        # Mapping sort fields to SQL order columns
+        sort_mapping = {
+            "name": "display_name",
+            "media_count": "media_count",
+            "image_count": "image_count",
+            "video_count": "video_count",
+            "created": "created_at",
+            "updated": "updated_at",
+        }
+        sql_sort_col = sort_mapping.get(sort_by, "display_name")
+        sql_order = "ASC" if order.lower() == "asc" else "DESC"
+
+        total_query = """
+            WITH combined AS (
+                SELECT display_name FROM persons
+                UNION ALL
+                SELECT 'Unknown' as display_name
+                UNION ALL
+                SELECT 'Multiple Faces' as display_name
+            )
+            SELECT COUNT(*) FROM combined WHERE display_name LIKE ?
+        """
+
+        query = f"""
+            WITH combined AS (
+                SELECT p.id, p.display_name, p.created_at, p.updated_at, p.embedding_count,
+                       (SELECT COUNT(DISTINCT f.media_id) FROM faces f WHERE f.person_id = p.id) as media_count,
+                       (SELECT COUNT(DISTINCT f.media_id) FROM faces f JOIN media m ON f.media_id = m.id WHERE f.person_id = p.id AND m.media_type = 'image') as image_count,
+                       (SELECT COUNT(DISTINCT f.media_id) FROM faces f JOIN media m ON f.media_id = m.id WHERE f.person_id = p.id AND m.media_type = 'video') as video_count
+                FROM persons p
+                UNION ALL
+                SELECT '_unknown' as id, 'Unknown' as display_name, '' as created_at, '' as updated_at, 0 as embedding_count,
+                       (SELECT COUNT(*) FROM media WHERE destination LIKE '%/Unknown/%' OR destination LIKE 'Unknown/%' OR destination = 'Unknown') as media_count,
+                       (SELECT COUNT(*) FROM media WHERE (destination LIKE '%/Unknown/%' OR destination LIKE 'Unknown/%' OR destination = 'Unknown') AND media_type = 'image') as image_count,
+                       (SELECT COUNT(*) FROM media WHERE (destination LIKE '%/Unknown/%' OR destination LIKE 'Unknown/%' OR destination = 'Unknown') AND media_type = 'video') as video_count
+                UNION ALL
+                SELECT '_multiple' as id, 'Multiple Faces' as display_name, '' as created_at, '' as updated_at, 0 as embedding_count,
+                       (SELECT COUNT(*) FROM media WHERE destination LIKE '%/MultipleFaces/%' OR destination LIKE 'MultipleFaces/%' OR destination = 'MultipleFaces') as media_count,
+                       (SELECT COUNT(*) FROM media WHERE (destination LIKE '%/MultipleFaces/%' OR destination LIKE 'MultipleFaces/%' OR destination = 'MultipleFaces') AND media_type = 'image') as image_count,
+                       (SELECT COUNT(*) FROM media WHERE (destination LIKE '%/MultipleFaces/%' OR destination LIKE 'MultipleFaces/%' OR destination = 'MultipleFaces') AND media_type = 'video') as video_count
+            )
+            SELECT * FROM combined
+            WHERE display_name LIKE ?
+            ORDER BY {sql_sort_col} {sql_order}
+            LIMIT ? OFFSET ?
+        """
+
+        with self.store._get_connection() as conn:
+            total = conn.execute(total_query, (search_pattern,)).fetchone()[0]
+            cursor = conn.execute(query, (search_pattern, limit, skip))
+            items = []
+            for row in cursor:
+                items.append({
+                    "id": row["id"],
+                    "display_name": row["display_name"],
+                    "thumbnail_url": f"/api/person/{row['id']}/thumbnail",
+                    "image_count": row["image_count"],
+                    "video_count": row["video_count"],
+                    "media_count": row["media_count"],
+                })
+        return total, items
+
+    def list_person_media_paginated(
+        self,
+        person_id: str,
+        skip: int,
+        limit: int,
+        sort_by: str,
+        order: str,
+    ) -> tuple[int, list[dict[str, Any]]]:
+        self.store._init_db()
+        sort_mapping = {
+            "filename": "path",
+            "created": "mtime",
+            "modified": "mtime",
+            "type": "media_type",
+            "filesize": "size",
+        }
+        sql_sort_col = sort_mapping.get(sort_by, "path")
+        sql_order = "ASC" if order.lower() == "asc" else "DESC"
+
+        if person_id == "_unknown":
+            total_query = "SELECT COUNT(*) FROM media WHERE destination LIKE '%/Unknown/%' OR destination LIKE 'Unknown/%' OR destination = 'Unknown'"
+            query = f"""
+                SELECT id, path, sha256, mtime, size, media_type, destination
+                FROM media
+                WHERE destination LIKE '%/Unknown/%' OR destination LIKE 'Unknown/%' OR destination = 'Unknown'
+                ORDER BY {sql_sort_col} {sql_order}
+                LIMIT ? OFFSET ?
+            """
+            params = (limit, skip)
+            total_params = ()
+        elif person_id == "_multiple":
+            total_query = "SELECT COUNT(*) FROM media WHERE destination LIKE '%/MultipleFaces/%' OR destination LIKE 'MultipleFaces/%' OR destination = 'MultipleFaces'"
+            query = f"""
+                SELECT id, path, sha256, mtime, size, media_type, destination
+                FROM media
+                WHERE destination LIKE '%/MultipleFaces/%' OR destination LIKE 'MultipleFaces/%' OR destination = 'MultipleFaces'
+                ORDER BY {sql_sort_col} {sql_order}
+                LIMIT ? OFFSET ?
+            """
+            params = (limit, skip)
+            total_params = ()
+        else:
+            total_query = "SELECT COUNT(DISTINCT media_id) FROM faces WHERE person_id = ?"
+            query = f"""
+                SELECT DISTINCT m.id, m.path, m.sha256, m.mtime, m.size, m.media_type, m.destination
+                FROM media m
+                JOIN faces f ON f.media_id = m.id
+                WHERE f.person_id = ?
+                ORDER BY m.{sql_sort_col} {sql_order}
+                LIMIT ? OFFSET ?
+            """
+            params = (person_id, limit, skip)
+            total_params = (person_id,)
+
+        with self.store._get_connection() as conn:
+            total = conn.execute(total_query, total_params).fetchone()[0]
+            cursor = conn.execute(query, params)
+            items = []
+            for row in cursor:
+                import datetime
+                try:
+                    mtime_sec = row["mtime"] / 1_000_000_000.0
+                    dt = datetime.datetime.fromtimestamp(mtime_sec, tz=datetime.timezone.utc)
+                    created_str = dt.strftime("%Y-%m-%d")
+                except Exception:
+                    created_str = ""
+                items.append({
+                    "id": row["id"],
+                    "thumbnail_url": f"/api/media/{row['id']}/thumbnail",
+                    "media_url": f"/api/media/{row['id']}",
+                    "type": row["media_type"],
+                    "filename": Path(row["path"]).name,
+                    "created": created_str,
+                })
+        return total, items
+
+    def reassign_media(self, media_id: int, person_id: str | None, input_root: Path | None = None) -> None:
+        self.store._init_db()
+        if person_id == "":
+            person_id = None
+
+        with self.store._get_connection() as conn:
+            if person_id is not None:
+                row = conn.execute("SELECT id FROM persons WHERE id = ?", (person_id,)).fetchone()
+                if not row:
+                    raise ValueError(f"Person {person_id} does not exist")
+
+            cursor = conn.execute("SELECT COUNT(*) FROM faces WHERE media_id = ?", (media_id,))
+            count = cursor.fetchone()[0]
+            if count > 0:
+                conn.execute("UPDATE faces SET person_id = ? WHERE media_id = ?", (person_id, media_id))
+            elif person_id is not None:
+                from .storage import serialize_embedding
+                conn.execute(
+                    "INSERT INTO faces (media_id, person_id, embedding) VALUES (?, ?, ?)",
+                    (media_id, person_id, serialize_embedding([]))
+                )
+
+        people = self.store.load_people()
+        records = self.store.load_embeddings()
+        old_index = self.store.load_index()
+        clusters = self.store.load_clusters()
+
+        recompute_centroids(people, records)
+        from .cli import _input_root
+        in_root = _input_root(input_root, records)
+        index = build_index(records, people, in_root, self.output_root)
+
+        sync_output(old_index, index, self.output_root, self.config.copy_mode)
+        self.store.save(people, records, index, clusters)
+        self.generate_thumbnails()
+
+    def search(self, query: str) -> dict[str, list[dict[str, Any]]]:
+        self.store._init_db()
+        people_results = []
+        media_results = []
+        with self.store._get_connection() as conn:
+            people_cursor = conn.execute(
+                "SELECT id, display_name FROM persons WHERE display_name LIKE ?",
+                (f"%{query}%",)
+            )
+            for row in people_cursor:
+                people_results.append({
+                    "id": row["id"],
+                    "display_name": row["display_name"],
+                    "thumbnail_url": f"/api/person/{row['id']}/thumbnail",
+                })
+
+            media_cursor = conn.execute(
+                "SELECT id, path, media_type FROM media WHERE path LIKE ? OR destination LIKE ? LIMIT 100",
+                (f"%{query}%", f"%{query}%")
+            )
+            for row in media_cursor:
+                filename = Path(row["path"]).name
+                media_results.append({
+                    "id": row["id"],
+                    "filename": filename,
+                    "type": row["media_type"],
+                    "thumbnail_url": f"/api/media/{row['id']}/thumbnail",
+                    "media_url": f"/api/media/{row['id']}",
+                })
+        return {"people": people_results, "media": media_results}

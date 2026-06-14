@@ -76,25 +76,29 @@ To run in separate modular phases:
    face-sort organize --input D:\Photos --output D:\Sorted --cache D:\face-sort-cache
    ```
 
-### Embedded HTTP API Server
+### Self-Hosted Web UI & HTTP API Server
 
-Start the lightweight FastAPI server:
+`face-sort` includes a responsive, self-hosted Web UI to visually search, browse, rename, merge, and reassign media files dynamically.
+
+Start the local server:
 
 ```powershell
 face-sort serve --cache D:\face-sort-cache --output D:\Sorted
 ```
-This runs a local HTTP API. The default host (`127.0.0.1`) and port (`9876`) can be customized via CLI options (`--host` and `--port`) or configured in `config.yaml` (`server_host` and `server_port`).
 
-#### Endpoints:
-* `GET /people` — Return list of all registered people.
-* `GET /stats` — Show statistics about people, media, and face records.
-* `GET /verify` — Check registry integrity and consistency.
-* `POST /rename` — Rename a person and update output folders instantly.
-* `POST /merge` — Merge two people and update output folders instantly.
-* `POST /split` — Split a person's faces back to unknown.
-* `POST /organize` — Trigger the organize phase.
-* `POST /extract` — Trigger face extraction asynchronously in a background task.
-* `GET /progress` — Poll the progress and status of the background extraction.
+Once the server is running, open your browser and navigate to **`http://127.0.0.1:9876`** to access the UI. The server port and host can be customized via CLI options (`--host` and `--port`) or configured in `config.yaml` (`server_port` and `server_host`).
+
+#### Key API Endpoints:
+* `GET /api/people` — Return a paginated, sortable list of all registered people.
+* `GET /api/person/{id}/media` — Return a paginated, sortable gallery list of media assigned to a person.
+* `GET /api/media/{id}` — Serve the original full-resolution media file.
+* `GET /api/media/{id}/thumbnail` — Serve/cache a 400px resized media thumbnail.
+* `GET /api/person/{id}/thumbnail` — Serve/cache a 256x256 cropped representative face cover.
+* `POST /api/person/create` — Create a new person identity.
+* `POST /api/person/rename` — Rename a person and update output folders instantly.
+* `POST /api/person/merge` — Merge two people and update output folders instantly.
+* `POST /api/media/reassign` — Reassign a media file to another person or release it to Unknown.
+* `GET /api/search` — Unified prefix search across people and media filenames.
 
 ### List registered people
 

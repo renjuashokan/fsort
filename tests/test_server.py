@@ -151,3 +151,50 @@ def test_extract_and_organize_endpoints(
     resp = client.get("/progress")
     assert resp.status_code == 200
     assert resp.json()["status"] in ("running", "completed")
+
+
+def test_new_api_endpoints(
+    client_with_service: tuple[TestClient, FsortService],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, service = client_with_service
+
+    # 1. Create a person via POST /api/person/create
+    resp = client.post("/api/person/create", json={"name": "Alex"})
+    assert resp.status_code == 200
+    person_data = resp.json()["person"]
+    assert person_data["display_name"] == "Alex"
+    person_id = person_data["id"]
+
+    # 2. Get the person details via GET /api/person/{id}
+    resp = client.get(f"/api/person/{person_id}")
+    assert resp.status_code == 200
+    assert resp.json()["display_name"] == "Alex"
+
+    # 3. List people via GET /api/people
+    resp = client.get("/api/people?skip=0&limit=10&sort_by=name&order=asc")
+    assert resp.status_code == 200
+    res = resp.json()
+    assert res["total"] == 3  # Alex, Unknown, Multiple Faces
+    items = res["items"]
+    ids = [item["id"] for item in items]
+    assert "_unknown" in ids
+    assert "_multiple" in ids
+    assert person_id in ids
+
+    # 4. Mock reassign_media and test POST /api/media/reassign
+    monkeypatch.setattr(
+        service,
+        "reassign_media",
+        lambda media_id, p_id, input_root=None: None,
+    )
+    resp = client.post("/api/media/reassign", json={"media_id": 42, "person_id": person_id})
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "success"
+
+    # 5. Search for person
+    resp = client.get("/api/search?query=Ale")
+    assert resp.status_code == 200
+    search_res = resp.json()
+    assert len(search_res["people"]) == 1
+    assert search_res["people"][0]["display_name"] == "Alex"
