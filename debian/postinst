@@ -14,9 +14,10 @@ case "$1" in
         /opt/fsort/.venv/bin/pip install --upgrade pip
         /opt/fsort/.venv/bin/pip install /opt/fsort/
 
-        # Create library/state directories
+        # Create library/state/log directories
         mkdir -p /var/lib/fsort/cache
         mkdir -p /var/lib/fsort/sorted
+        mkdir -p /var/log/fsort
 
         # Reload systemd to recognize the new service
         systemctl daemon-reload

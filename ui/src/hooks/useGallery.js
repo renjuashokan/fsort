@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { api, MEDIA_PAGE_SIZE } from "../api/facesortApi";
 import { showToast } from "../utils/notifications";
 
@@ -10,9 +10,14 @@ export function useGallery(selectedPerson, view) {
   const [mediaSortBy, setMediaSortBy] = useState("filename");
   const [mediaOrder, setMediaOrder] = useState("asc");
 
+  // Ref-based guard prevents concurrent fetches from creating a new loadGallery
+  // reference (via mediaLoading state) which would re-trigger the useEffect below.
+  const mediaLoadingRef = useRef(false);
+
   const loadGallery = useCallback(
     async (reset = false) => {
-      if (!selectedPerson || mediaLoading) return;
+      if (!selectedPerson || mediaLoadingRef.current) return;
+      mediaLoadingRef.current = true;
       setMediaLoading(true);
       const skipVal = reset ? 0 : mediaSkip;
       try {
@@ -32,10 +37,13 @@ export function useGallery(selectedPerson, view) {
       } catch (err) {
         showToast("Failed to load gallery: " + err.message, "error");
       } finally {
+        mediaLoadingRef.current = false;
         setMediaLoading(false);
       }
     },
-    [selectedPerson, mediaLoading, mediaSkip, mediaSortBy, mediaOrder]
+    // mediaLoading removed from deps — using ref guard instead to avoid
+    // re-creating loadGallery on every fetch, which would re-trigger the effect.
+    [selectedPerson, mediaSkip, mediaSortBy, mediaOrder]
   );
 
   // Reload gallery when options change or selected person changes

@@ -8,6 +8,7 @@ import { api } from "./api/facesortApi";
 // Hooks
 import { usePeople } from "./hooks/usePeople";
 import { useGallery } from "./hooks/useGallery";
+import { useOfflineCache } from "./hooks/useOfflineCache";
 
 // Components
 import Header from "./components/Header";
@@ -31,6 +32,7 @@ export default function App() {
   // Custom states
   const peopleState = usePeople();
   const galleryState = useGallery(selectedPerson, view);
+  const offlineCache = useOfflineCache();
 
   // Media viewer modal states
   const [viewerIndex, setViewerIndex] = useState(null);
@@ -143,6 +145,7 @@ export default function App() {
           <GalleryPage
             selectedPerson={selectedPerson}
             galleryState={galleryState}
+            offlineCache={offlineCache}
             onGoHome={goHome}
             onRenameOpen={() => setRenameOpen(true)}
             onMergeOpen={() => setMergeOpen(true)}

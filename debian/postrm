@@ -7,9 +7,10 @@ case "$1" in
         systemctl stop fsort.service || true
         systemctl disable fsort.service || true
         systemctl daemon-reload
-        # Remove the application and cache folders
+        # Remove the application, cache, and log folders
         rm -rf /opt/fsort
         rm -rf /var/lib/fsort
+        rm -rf /var/log/fsort
     ;;
 
     remove|upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
