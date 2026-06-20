@@ -466,6 +466,7 @@ class FsortService:
         sort_by: str,
         order: str,
         search: str | None = None,
+        min_media_count: int = 0,
     ) -> tuple[int, list[dict[str, Any]]]:
         self.store._init_db()
         search_pattern = f"%{search}%" if search else "%"
@@ -484,13 +485,17 @@ class FsortService:
 
         total_query = """
             WITH combined AS (
-                SELECT display_name FROM persons
+                SELECT p.display_name,
+                       (SELECT COUNT(DISTINCT f.media_id) FROM faces f WHERE f.person_id = p.id) as media_count
+                FROM persons p
                 UNION ALL
-                SELECT 'Unknown' as display_name
+                SELECT 'Unknown' as display_name,
+                       (SELECT COUNT(*) FROM media WHERE destination LIKE '%/Unknown/%' OR destination LIKE 'Unknown/%' OR destination = 'Unknown') as media_count
                 UNION ALL
-                SELECT 'Multiple Faces' as display_name
+                SELECT 'Multiple Faces' as display_name,
+                       (SELECT COUNT(*) FROM media WHERE destination LIKE '%/MultipleFaces/%' OR destination LIKE 'MultipleFaces/%' OR destination = 'MultipleFaces') as media_count
             )
-            SELECT COUNT(*) FROM combined WHERE display_name LIKE ?
+            SELECT COUNT(*) FROM combined WHERE display_name LIKE ? AND media_count >= ?
         """
 
         query = f"""
@@ -512,14 +517,14 @@ class FsortService:
                        (SELECT COUNT(*) FROM media WHERE (destination LIKE '%/MultipleFaces/%' OR destination LIKE 'MultipleFaces/%' OR destination = 'MultipleFaces') AND media_type = 'video') as video_count
             )
             SELECT * FROM combined
-            WHERE display_name LIKE ?
+            WHERE display_name LIKE ? AND media_count >= ?
             ORDER BY {sql_sort_col} {sql_order}
             LIMIT ? OFFSET ?
         """
 
         with self.store._get_connection() as conn:
-            total = conn.execute(total_query, (search_pattern,)).fetchone()[0]
-            cursor = conn.execute(query, (search_pattern, limit, skip))
+            total = conn.execute(total_query, (search_pattern, min_media_count)).fetchone()[0]
+            cursor = conn.execute(query, (search_pattern, min_media_count, limit, skip))
             items = []
             for row in cursor:
                 items.append({

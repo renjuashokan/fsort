@@ -211,10 +211,16 @@ def api_get_people(
     sort_by: str = "name",
     order: str = "asc",
     search: str | None = None,
+    min_media_count: int = 0,
 ) -> dict[str, Any]:
     service = get_service()
     total, items = service.list_people_paginated(
-        skip=skip, limit=limit, sort_by=sort_by, order=order, search=search
+        skip=skip,
+        limit=limit,
+        sort_by=sort_by,
+        order=order,
+        search=search,
+        min_media_count=min_media_count,
     )
     return {"total": total, "skip": skip, "limit": limit, "items": items}
 
