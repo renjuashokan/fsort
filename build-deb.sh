@@ -8,7 +8,11 @@ else
   PKG_VERSION="1.0.0"
 fi
 
-PKG_ARCH="all"
+if [ "$2" != "" ]; then
+  PKG_ARCH="$2"
+else
+  PKG_ARCH="all"
+fi
 
 # Create outputs directory if it doesn't exist
 OUTPUT_DIR="outputs"
@@ -18,9 +22,13 @@ echo "Building FaceSort Debian package..."
 echo "Version: $PKG_VERSION"
 echo "Architecture: $PKG_ARCH"
 
-# Build the frontend first (Vite production build)
 echo "Building React frontend..."
 if [ -d "ui" ]; then
+    if [ -d "ui/dist" ]; then
+        echo "Removing existing ui/dist..."
+        rm -rf ui/dist
+    fi
+
     (cd ui && npm install && npm run build)
 else
     echo "Error: ui directory not found"
