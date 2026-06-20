@@ -131,6 +131,14 @@ export default function MediaViewer({
               controls
               autoPlay
               className="viewer-media rounded-xl border border-slate-900/60 shadow-2xl"
+              onError={(e) => {
+                // iOS Safari can reject blob:// video URLs. Fall back to the
+                // original server URL if one is stored (set by offline cache).
+                const fallback = currentViewerMedia.original_media_url;
+                if (fallback && e.target.src !== fallback) {
+                  e.target.src = fallback;
+                }
+              }}
             />
           ) : (
             <img

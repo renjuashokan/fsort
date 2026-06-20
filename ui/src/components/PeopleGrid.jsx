@@ -2,7 +2,7 @@ import { User } from "lucide-react";
 import PersonCard from "./PersonCard";
 import LoadingSpinner from "./LoadingSpinner";
 
-export default function PeopleGrid({ people, loading, onSelectPerson }) {
+export default function PeopleGrid({ people, loading, onSelectPerson, offlineCache }) {
   if (loading && people.length === 0) {
     return <LoadingSpinner />;
   }
@@ -26,6 +26,7 @@ export default function PeopleGrid({ people, loading, onSelectPerson }) {
           key={person.id}
           person={person}
           onClick={() => onSelectPerson(person)}
+          offlineCache={offlineCache}
         />
       ))}
     </div>

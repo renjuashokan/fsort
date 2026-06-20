@@ -13,6 +13,9 @@ Environment=FSORT_PORT=9876
 Environment=FSORT_CONFIG=/opt/fsort/config.yaml
 Environment=FSORT_UI_DIST=/opt/fsort/ui/dist
 Environment=FSORT_HDD_ROOT=/mnt/sda1
+LogsDirectory=fsort
+StandardOutput=append:/var/log/fsort/fsort.log
+StandardError=inherit
 ExecStart=/opt/fsort/.venv/bin/face-sort serve --cache ${FSORT_CACHE} --output ${FSORT_OUTPUT} --host ${FSORT_HOST} --port ${FSORT_PORT} --config ${FSORT_CONFIG}
 Restart=always
 RestartSec=10

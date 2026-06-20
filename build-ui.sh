@@ -8,6 +8,9 @@ cd ui
 
 npm install
 
+echo "Running Install"
 npm ci
+echo "Running Lint"
 npm run lint
+echo "Running Build"
 npm run build

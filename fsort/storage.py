@@ -86,9 +86,15 @@ class RegistryStore:
 
     def _get_connection(self) -> sqlite3.Connection:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(self.db_path)
+        # timeout=30: wait up to 30 s for a write lock instead of immediately
+        # raising OperationalError when another connection holds a lock.
+        conn = sqlite3.connect(self.db_path, timeout=30)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON;")
+        # WAL mode allows concurrent readers during an active write transaction,
+        # which prevents 'database is locked' errors when the server serves API
+        # requests while a rename/save is in progress.
+        conn.execute("PRAGMA journal_mode = WAL;")
         return conn
 
     def _init_db(self) -> None:
