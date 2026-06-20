@@ -2,7 +2,7 @@ import { Search, SlidersHorizontal, ChevronLeft, ChevronRight } from "lucide-rea
 import PeopleGrid from "../components/PeopleGrid";
 import { getPaginationPages } from "../utils/pagination";
 
-export default function HomePage({ peopleState, onSelectPerson, onScrollToTop }) {
+export default function HomePage({ peopleState, onSelectPerson, onScrollToTop, offlineCache }) {
   const {
     people,
     totalPeople,
@@ -74,6 +74,7 @@ export default function HomePage({ peopleState, onSelectPerson, onScrollToTop })
         people={people}
         loading={peopleLoading}
         onSelectPerson={onSelectPerson}
+        offlineCache={offlineCache}
       />
 
       {/* --- Pagination --- */}

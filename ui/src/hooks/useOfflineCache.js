@@ -152,6 +152,9 @@ export function useOfflineCache() {
       ...item,
       media_url: cached.mediaUrl,
       thumbnail_url: cached.thumbUrl,
+      // Preserved so MediaViewer can fall back to server URL if blob
+      // video playback fails (e.g. iOS Safari blob:// video restriction).
+      original_media_url: item.media_url,
     };
   }, []);
 

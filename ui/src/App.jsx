@@ -138,6 +138,7 @@ export default function App() {
             peopleState={peopleState}
             onSelectPerson={handleSelectPerson}
             onScrollToTop={scrollToTop}
+            offlineCache={offlineCache}
           />
         )}
 
