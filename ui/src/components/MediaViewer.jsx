@@ -99,8 +99,8 @@ export default function MediaViewer({
         <div className="w-9" /> {/* spacer */}
       </div>
 
-      {/* Content area */}
-      <div className="flex flex-col md:flex-row flex-1 min-h-0">
+      {/* Content area — scrolls vertically on mobile so sidebar is reachable below the image */}
+      <div className="flex flex-col md:flex-row flex-1 min-h-0 overflow-y-auto md:overflow-hidden">
         {/* Main media container */}
         <div className="viewer-image-area md:flex-1 bg-black/30 w-full relative flex items-center justify-center">
           {/* Prev button */}
@@ -151,8 +151,8 @@ export default function MediaViewer({
           )}
         </div>
 
-        {/* Info & Editing Sidebar */}
-        <div className="w-full md:w-80 bg-slate-900/40 border-t md:border-t-0 md:border-l border-slate-900 flex flex-col overflow-y-auto shrink-0 max-h-[220px] md:max-h-none">
+        {/* Info & Editing Sidebar — no height cap on mobile; scroll the parent instead */}
+        <div className="w-full md:w-80 bg-slate-900/40 border-t md:border-t-0 md:border-l border-slate-900 flex flex-col md:overflow-y-auto shrink-0">
           <div className="flex flex-col h-full p-4 sm:p-6 gap-4">
             {/* Filename & meta */}
             <div className="flex items-start gap-3">
