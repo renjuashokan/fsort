@@ -278,6 +278,70 @@ class RegistryStore:
                 )
         return records
 
+    def load_embeddings_for_person(self, person_id: str) -> dict[str, MediaRecord]:
+        """Load only media records that have at least one face assigned to *person_id*.
+
+        Much cheaper than ``load_embeddings()`` for single-person operations
+        (e.g. thumbnail generation during rename) because it joins on
+        ``person_id`` at the SQL level and skips all unrelated rows.
+        """
+        self._init_db()
+        records: dict[str, MediaRecord] = {}
+        with self._get_connection() as conn:
+            # Fetch only media rows that contain a face for this person.
+            media_cursor = conn.execute(
+                """
+                SELECT DISTINCT m.id, m.path, m.sha256, m.mtime, m.size
+                FROM media m
+                JOIN faces f ON f.media_id = m.id
+                WHERE f.person_id = ?
+                """,
+                (person_id,),
+            )
+            media_rows = media_cursor.fetchall()
+            if not media_rows:
+                return {}
+
+            media_ids = [row["id"] for row in media_rows]
+            placeholders = ",".join("?" for _ in media_ids)
+            faces_cursor = conn.execute(
+                f"""
+                SELECT media_id, person_id, embedding, bbox_x, bbox_y, bbox_w, bbox_h,
+                       confidence, quality_score, frame
+                FROM faces
+                WHERE media_id IN ({placeholders})
+                """,
+                media_ids,
+            )
+            faces_by_media: dict[int, list[FaceRecord]] = {}
+            for row in faces_cursor:
+                mid = row["media_id"]
+                face = FaceRecord(
+                    embedding=deserialize_embedding(row["embedding"]),
+                    person_id=row["person_id"],
+                    frame=row["frame"],
+                    bbox_x=row["bbox_x"],
+                    bbox_y=row["bbox_y"],
+                    bbox_w=row["bbox_w"],
+                    bbox_h=row["bbox_h"],
+                    confidence=row["confidence"],
+                    quality_score=row["quality_score"],
+                )
+                if mid not in faces_by_media:
+                    faces_by_media[mid] = []
+                faces_by_media[mid].append(face)
+
+            for row in media_rows:
+                m_id = row["id"]
+                path = self._to_abs(row["path"])
+                records[path] = MediaRecord(
+                    hash=row["sha256"] or "",
+                    mtime_ns=row["mtime"] or 0,
+                    size=row["size"] or 0,
+                    faces=faces_by_media.get(m_id, []),
+                )
+        return records
+
     def load_index(self) -> dict[str, dict[str, Any]]:
         self._init_db()
         index: dict[str, dict[str, Any]] = {}
@@ -438,4 +502,42 @@ class RegistryStore:
                 ON CONFLICT(key) DO UPDATE SET value = excluded.value
                 """,
                 (clusters_str,)
+            )
+
+    def rename_person(
+        self,
+        person_id: str,
+        new_display_name: str,
+        old_dest_prefix: str,
+        new_dest_prefix: str,
+    ) -> None:
+        """Targeted update for a rename operation.
+
+        Updates only:
+        - ``persons.display_name`` for the given person
+        - ``media.destination`` rows whose stored path starts with
+          *old_dest_prefix*, replacing the prefix with *new_dest_prefix*
+
+        No embeddings are read or written, making this O(1) for persons
+        and O(files_for_person) for media — far cheaper than a full save().
+        """
+        import datetime
+
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        # Length of the prefix to replace, +1 for the trailing slash kept in SUBSTR
+        prefix_len = len(old_dest_prefix)
+        with self._get_connection() as conn:
+            conn.execute(
+                "UPDATE persons SET display_name = ?, updated_at = ? WHERE id = ?",
+                (new_display_name, now, person_id),
+            )
+            # SUBSTR(destination, prefix_len + 1) returns everything after the old prefix;
+            # we prepend the new prefix to reconstruct the corrected path.
+            conn.execute(
+                """
+                UPDATE media
+                SET destination = ? || SUBSTR(destination, ?)
+                WHERE destination LIKE ?
+                """,
+                (new_dest_prefix, prefix_len + 1, old_dest_prefix + "%"),
             )

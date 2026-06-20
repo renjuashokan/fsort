@@ -171,9 +171,18 @@ class FsortService:
     def rename(
         self, person_val: str, new_name: str, input_root: Path | None = None
     ) -> str:
+        """Rename a person using a fast targeted path.
+
+        Avoids loading embeddings, recomputing centroids, rebuilding the full
+        index, or running sync_output over all files.  Instead:
+        1. Validate the new name against in-memory people (persons table only).
+        2. Rename the output directory with a single O(1) syscall.
+        3. Update only ``persons.display_name`` and the affected
+           ``media.destination`` rows in SQLite.
+        4. Regenerate the thumbnail for this person only.
+        """
+        # Load only the persons table — no embedding blobs needed.
         people = self.store.load_people()
-        records = self.store.load_embeddings()
-        old_index = self.store.load_index()
 
         from .registry import resolve_person, validate_display_name
         person = resolve_person(people, person_val)
@@ -187,18 +196,35 @@ class FsortService:
             raise ValueError(f"Display name already exists: {name}")
 
         old_name = person.display_name
-        self._delete_person_thumbnail(old_name)
+        old_folder = self.output_root / old_name
+        new_folder = self.output_root / name
+
+        # --- 1. Move the output directory (O(1) on same filesystem) ----------
+        if old_folder.exists():
+            if new_folder.exists():
+                # Target already exists (partial rename or collision) — move
+                # individual files so we don't clobber anything.
+                import shutil
+                new_folder.mkdir(parents=True, exist_ok=True)
+                for item in old_folder.iterdir():
+                    dest_item = new_folder / item.name
+                    if not dest_item.exists():
+                        shutil.move(str(item), str(dest_item))
+                try:
+                    old_folder.rmdir()  # remove only if now empty
+                except OSError:
+                    pass
+            else:
+                old_folder.rename(new_folder)
+
+        # --- 2. Targeted DB update — no full save() --------------------------
+        old_prefix = self.store._to_stored(str(old_folder))
+        new_prefix = self.store._to_stored(str(new_folder))
+        self.store.rename_person(person.id, name, old_prefix, new_prefix)
+
+        # --- 3. Thumbnail for this person only --------------------------------
         person.display_name = name
-
-        recompute_centroids(people, records)
-        from .cli import _input_root
-        in_root = _input_root(input_root, records)
-        index = build_index(records, people, in_root, self.output_root)
-
-        sync_output(old_index, index, self.output_root, self.config.copy_mode)
-        self.store.save(people, records, index)
-
-        self.generate_thumbnails()
+        self._generate_person_thumbnail(person)
 
         return f"Renamed {person.id} ({old_name}) to {name}."
 
@@ -259,118 +285,117 @@ class FsortService:
             pass
 
     def generate_thumbnails(self) -> int:
+        """Regenerate thumbnails for all registered people."""
+        people = self.store.load_people()
+        count = 0
+        for person in people:
+            if self._generate_person_thumbnail(person):
+                count += 1
+        return count
+
+    def _generate_person_thumbnail(self, person: "Person") -> bool:  # noqa: F821
+        """Generate (or refresh) the thumbnail for a single person.
+
+        Returns True if a thumbnail was successfully written, False otherwise.
+        Loads only the faces for this specific person from the DB so it can be
+        called cheaply during a rename without touching unrelated records.
+        """
         from collections import defaultdict
         import cv2
         import numpy as np
         from .registry import validate_display_name
 
-        people = self.store.load_people()
-        records = self.store.load_embeddings()
+        # Load only faces belonging to this person from the DB.
+        records = self.store.load_embeddings_for_person(person.id)
 
-        # Group all faces by person_id
-        person_faces = defaultdict(list)
+        # Build (path_str, face) list for this person.
+        faces: list[tuple[str, Any]] = []
         for path_str, record in records.items():
             for face in record.faces:
-                if face.person_id is not None:
-                    person_faces[face.person_id].append((path_str, face))
+                if face.person_id == person.id:
+                    faces.append((path_str, face))
 
-        count = 0
-        for person in people:
-            faces = person_faces.get(person.id, [])
-            if not faces:
+        if not faces:
+            return False
+
+        # Sort by similarity to centroid so the most representative face comes first.
+        if person.centroid and len(person.centroid) > 0:
+            centroid = np.asarray(person.centroid, dtype=np.float32)
+            c_norm = np.linalg.norm(centroid)
+            if c_norm > 0:
+                centroid = centroid / c_norm
+
+            def similarity_key(item: tuple[str, Any]) -> float:
+                _, face = item
+                emb = np.asarray(face.embedding, dtype=np.float32)
+                emb_norm = np.linalg.norm(emb)
+                if emb_norm > 0:
+                    emb = emb / emb_norm
+                return float(1.0 - np.dot(emb, centroid))
+
+            try:
+                faces = sorted(faces, key=similarity_key)
+            except Exception:
+                pass
+
+        # Find the first face that we can successfully load and crop.
+        for path_str, face in faces:
+            path = Path(path_str)
+            if not path.is_file():
                 continue
 
-            # Sort faces by similarity to centroid if centroid exists
-            if person.centroid and len(person.centroid) > 0:
-                centroid = np.asarray(person.centroid, dtype=np.float32)
-                # Normalize centroid
-                c_norm = np.linalg.norm(centroid)
-                if c_norm > 0:
-                    centroid = centroid / c_norm
+            try:
+                if face.frame is not None:
+                    cap = cv2.VideoCapture(str(path))
+                    if not cap.isOpened():
+                        continue
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, face.frame)
+                    ok, frame = cap.read()
+                    cap.release()
+                    if not ok or frame is None:
+                        continue
+                    img = frame
+                else:
+                    img = cv2.imread(str(path))
+                    if img is None:
+                        continue
+            except Exception:
+                continue
 
-                def similarity_key(item: tuple[str, Any]) -> float:
-                    _, face = item
-                    emb = np.asarray(face.embedding, dtype=np.float32)
-                    emb_norm = np.linalg.norm(emb)
-                    if emb_norm > 0:
-                        emb = emb / emb_norm
-                    return float(1.0 - np.dot(emb, centroid))
+            h_img, w_img = img.shape[:2]
 
+            x = face.bbox_x if face.bbox_x is not None else 0
+            y = face.bbox_y if face.bbox_y is not None else 0
+            w = face.bbox_w if face.bbox_w is not None else w_img
+            h = face.bbox_h if face.bbox_h is not None else h_img
+
+            pad_x = int(w * 0.15)
+            pad_y = int(h * 0.15)
+            crop_x = max(0, x - pad_x)
+            crop_y = max(0, y - pad_y)
+            crop_w = min(w_img - crop_x, w + 2 * pad_x)
+            crop_h = min(h_img - crop_y, h + 2 * pad_y)
+
+            crop = img[crop_y : crop_y + crop_h, crop_x : crop_x + crop_w]
+            if crop.size == 0:
+                continue
+
+            try:
+                thumbnail = cv2.resize(crop, (256, 256), interpolation=cv2.INTER_AREA)
                 try:
-                    faces = sorted(faces, key=similarity_key)
-                except Exception:
-                    pass
+                    folder_name = validate_display_name(person.display_name)
+                except ValueError:
+                    folder_name = person.id
 
-            # Find the first face that we can successfully load and crop
-            success = False
-            for path_str, face in faces:
-                path = Path(path_str)
-                if not path.is_file():
-                    continue
+                person_folder = self.output_root / folder_name
+                person_folder.mkdir(parents=True, exist_ok=True)
+                thumbnail_path = person_folder / "thumbnail_fsort.jpg"
+                cv2.imwrite(str(thumbnail_path), thumbnail)
+                return True
+            except Exception:
+                continue
 
-                try:
-                    if face.frame is not None:
-                        # Video frame extraction
-                        cap = cv2.VideoCapture(str(path))
-                        if not cap.isOpened():
-                            continue
-                        cap.set(cv2.CAP_PROP_POS_FRAMES, face.frame)
-                        ok, frame = cap.read()
-                        cap.release()
-                        if not ok or frame is None:
-                            continue
-                        img = frame
-                    else:
-                        # Photo
-                        img = cv2.imread(str(path))
-                        if img is None:
-                            continue
-                except Exception:
-                    continue
-
-                h_img, w_img = img.shape[:2]
-
-                # Crop bounding box if coordinates are valid
-                x = face.bbox_x if face.bbox_x is not None else 0
-                y = face.bbox_y if face.bbox_y is not None else 0
-                w = face.bbox_w if face.bbox_w is not None else w_img
-                h = face.bbox_h if face.bbox_h is not None else h_img
-
-                # Add a 15% margin padding
-                pad_x = int(w * 0.15)
-                pad_y = int(h * 0.15)
-
-                crop_x = max(0, x - pad_x)
-                crop_y = max(0, y - pad_y)
-                crop_w = min(w_img - crop_x, w + 2 * pad_x)
-                crop_h = min(h_img - crop_y, h + 2 * pad_y)
-
-                crop = img[crop_y : crop_y + crop_h, crop_x : crop_x + crop_w]
-                if crop.size == 0:
-                    continue
-
-                try:
-                    thumbnail = cv2.resize(crop, (256, 256), interpolation=cv2.INTER_AREA)
-                    # Create target directory
-                    try:
-                        folder_name = validate_display_name(person.display_name)
-                    except ValueError:
-                        folder_name = person.id
-                    
-                    person_folder = self.output_root / folder_name
-                    person_folder.mkdir(parents=True, exist_ok=True)
-                    thumbnail_path = person_folder / "thumbnail_fsort.jpg"
-                    
-                    cv2.imwrite(str(thumbnail_path), thumbnail)
-                    success = True
-                    break
-                except Exception:
-                    continue
-
-            if success:
-                count += 1
-
-        return count
+        return False
 
     def list_people(self) -> list[Person]:
         return self.store.load_people()
