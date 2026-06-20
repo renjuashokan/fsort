@@ -10,20 +10,18 @@ body {
 
 /*
  * Viewer image area:
- * On mobile (stacked layout) the area below the topbar (~56px) is split:
- *   - image area: remaining viewport minus the sidebar panel (220px)
- *   - sidebar: up to 220px
- * This gives the image container a concrete pixel height so that
- * max-height: 100% on the <img> / <video> actually resolves.
+ * Mobile: fills the full viewport below the top bar so the image is as large
+ * as the screen. The info sidebar sits below it and is reached by scrolling.
  */
 .viewer-image-area {
-  height: calc(100dvh - 56px - 220px);
+  height: calc(100dvh - 56px);
   min-height: 0;
   overflow: hidden;
   position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
 }
 
 @media (min-width: 768px) {
@@ -31,6 +29,7 @@ body {
   .viewer-image-area {
     flex: 1;
     height: auto;
+    flex-shrink: 1;
   }
 }
 
