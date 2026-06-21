@@ -114,7 +114,7 @@ def recompute_centroids(
     grouped: dict[str, list[np.ndarray]] = defaultdict(list)
     for record in records.values():
         for face in record.faces:
-            if face.person_id:
+            if face.person_id and face.embedding:
                 grouped[face.person_id].append(normalized(face.embedding))
 
     valid_ids = {person.id for person in people}

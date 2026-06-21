@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { X, ChevronLeft, ChevronRight, Info, User } from "lucide-react";
 
 export default function MediaViewer({
@@ -10,8 +10,18 @@ export default function MediaViewer({
   viewerPeople,
   onReassign,
   onCreateNewPerson,
+  isReassigning = false,
 }) {
   const viewerRef = useRef(null);
+  const comboboxRef = useRef(null);
+  // pending = { index, personId, label } — auto-invalidates when viewerIndex changes
+  const [pending, setPending] = useState(null);
+  const pendingPersonId = pending?.index === viewerIndex ? pending.personId : "";
+  const pendingLabel    = pending?.index === viewerIndex ? pending.label    : "";
+  // Searchable combobox state
+  const [searchQuery, setSearchQuery]   = useState("");
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [highlightIdx, setHighlightIdx] = useState(0);
   const currentViewerMedia =
     viewerIndex !== null && media ? media[viewerIndex] : null;
 
@@ -77,6 +87,18 @@ export default function MediaViewer({
       el.removeEventListener("touchend", onTouchEnd);
     };
   }, [viewerIndex, media.length, onNavigate]);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    if (!dropdownOpen) return;
+    const handleClick = (e) => {
+      if (comboboxRef.current && !comboboxRef.current.contains(e.target)) {
+        setDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [dropdownOpen]);
 
   if (!currentViewerMedia) return null;
 
@@ -198,35 +220,132 @@ export default function MediaViewer({
                 </div>
               </div>
 
-              {/* Reassign dropdown */}
+              {/* Searchable reassign combobox */}
               <div className="flex-1 flex flex-col gap-1.5">
                 <span className="block text-[10px] uppercase font-bold text-slate-500 tracking-wider">
                   Reassign
                 </span>
-                <select
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    if (val === "__new__") {
-                      onCreateNewPerson();
-                    } else if (val) {
-                      onReassign(currentViewerMedia.id, val);
-                    }
-                    e.target.value = "";
-                  }}
-                  className="w-full bg-slate-950 border border-slate-800 focus:border-violet-600 px-3 py-2 text-xs text-slate-300 rounded-xl outline-none cursor-pointer"
-                >
-                  <option value="">-- Select Person --</option>
-                  <option value="__new__" className="text-violet-400 font-bold">
-                    + Create New Person
-                  </option>
-                  {viewerPeople
-                    .filter((p) => !selectedPerson || p.id !== selectedPerson.id)
-                    .map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.display_name}
-                      </option>
-                    ))}
-                </select>
+
+                {/* Combobox container */}
+                <div ref={comboboxRef} className="relative">
+                  {/* Input — shows selected name or search text */}
+                  <input
+                    type="text"
+                    disabled={isReassigning}
+                    placeholder={pendingLabel || "Search person…"}
+                    value={searchQuery}
+                    onFocus={() => { setDropdownOpen(true); setHighlightIdx(0); }}
+                    onChange={(e) => {
+                      setSearchQuery(e.target.value);
+                      setDropdownOpen(true);
+                      setHighlightIdx(0);
+                    }}
+                    onKeyDown={(e) => {
+                      const filtered = [
+                        { id: "__new__", display_name: "+ Create New Person" },
+                        ...viewerPeople.filter(
+                          (p) => (!selectedPerson || p.id !== selectedPerson.id) &&
+                            p.display_name.toLowerCase().includes(searchQuery.toLowerCase())
+                        ),
+                      ];
+                      if (e.key === "ArrowDown") {
+                        e.preventDefault();
+                        setHighlightIdx((i) => Math.min(i + 1, filtered.length - 1));
+                      } else if (e.key === "ArrowUp") {
+                        e.preventDefault();
+                        setHighlightIdx((i) => Math.max(i - 1, 0));
+                      } else if (e.key === "Enter" && dropdownOpen && filtered[highlightIdx]) {
+                        e.preventDefault();
+                        const chosen = filtered[highlightIdx];
+                        if (chosen.id === "__new__") {
+                          setPending(null);
+                          setSearchQuery("");
+                          setDropdownOpen(false);
+                          onCreateNewPerson();
+                        } else {
+                          setPending({ index: viewerIndex, personId: chosen.id, label: chosen.display_name });
+                          setSearchQuery("");
+                          setDropdownOpen(false);
+                        }
+                      } else if (e.key === "Escape") {
+                        setDropdownOpen(false);
+                      }
+                    }}
+                    className="w-full bg-slate-950 border border-slate-800 focus:border-violet-500 px-3 py-2 text-xs text-slate-300 placeholder-slate-500 rounded-xl outline-none disabled:opacity-50"
+                  />
+                  {pendingLabel && !searchQuery && (
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-violet-400 font-semibold pointer-events-none">
+                      ✓
+                    </span>
+                  )}
+
+                  {/* Dropdown list */}
+                  {dropdownOpen && (() => {
+                    const filtered = [
+                      { id: "__new__", display_name: "+ Create New Person" },
+                      ...viewerPeople.filter(
+                        (p) => (!selectedPerson || p.id !== selectedPerson.id) &&
+                          p.display_name.toLowerCase().includes(searchQuery.toLowerCase())
+                      ),
+                    ];
+                    if (filtered.length === 0) return null;
+                    return (
+                      <ul className="absolute z-50 top-full mt-1 w-full max-h-48 overflow-y-auto bg-slate-900 border border-slate-700 rounded-xl shadow-2xl shadow-black/60">
+                        {filtered.map((p, i) => (
+                          <li
+                            key={p.id}
+                            onMouseDown={(e) => {
+                              e.preventDefault(); // prevent input blur
+                              if (p.id === "__new__") {
+                                setPending(null);
+                                setSearchQuery("");
+                                setDropdownOpen(false);
+                                onCreateNewPerson();
+                              } else {
+                                setPending({ index: viewerIndex, personId: p.id, label: p.display_name });
+                                setSearchQuery("");
+                                setDropdownOpen(false);
+                              }
+                            }}
+                            className={`px-3 py-2 text-xs cursor-pointer transition-colors ${
+                              i === highlightIdx
+                                ? "bg-violet-700/50 text-white"
+                                : p.id === "__new__"
+                                ? "text-violet-400 font-semibold hover:bg-slate-800"
+                                : "text-slate-300 hover:bg-slate-800"
+                            }`}
+                          >
+                            {p.display_name}
+                          </li>
+                        ))}
+                      </ul>
+                    );
+                  })()}
+                </div>
+
+                {/* Confirm button */}
+                {pendingPersonId && (
+                  <button
+                    disabled={isReassigning}
+                    onClick={() => {
+                      onReassign(currentViewerMedia.id, pendingPersonId);
+                      setPending(null);
+                    }}
+                    className="w-full py-2 text-xs font-semibold bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 disabled:opacity-70 disabled:cursor-not-allowed text-white rounded-xl transition-all active:scale-95 shadow-md shadow-violet-900/30 flex items-center justify-center gap-2"
+                  >
+                    {isReassigning ? (
+                      <>
+                        <svg className="animate-spin w-3.5 h-3.5" viewBox="0 0 24 24" fill="none">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                        </svg>
+                        Reassigning…
+                      </>
+                    ) : (
+                      <>✓ Confirm Reassign — {pendingLabel}</>
+                    )}
+                  </button>
+                )}
               </div>
             </div>
           </div>

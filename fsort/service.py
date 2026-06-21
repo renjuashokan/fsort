@@ -619,35 +619,143 @@ class FsortService:
             person_id = None
 
         with self.store._get_connection() as conn:
+            # Validate target person exists
             if person_id is not None:
                 row = conn.execute("SELECT id FROM persons WHERE id = ?", (person_id,)).fetchone()
                 if not row:
                     raise ValueError(f"Person {person_id} does not exist")
 
-            cursor = conn.execute("SELECT COUNT(*) FROM faces WHERE media_id = ?", (media_id,))
-            count = cursor.fetchone()[0]
+            # Get current face assignment(s) so we know which people lose a face
+            face_rows = conn.execute(
+                "SELECT person_id FROM faces WHERE media_id = ?", (media_id,)
+            ).fetchall()
+            old_person_ids = {r["person_id"] for r in face_rows if r["person_id"]}
+
+            # Get media path and current destination
+            media_row = conn.execute(
+                "SELECT path, destination FROM media WHERE id = ?", (media_id,)
+            ).fetchone()
+            if not media_row:
+                raise ValueError(f"Media {media_id} not found")
+            abs_path = Path(self.store._to_abs(media_row["path"]))
+            old_dest_stored = media_row["destination"]
+            old_dest = Path(self.store._to_abs(old_dest_stored)) if old_dest_stored else None
+
+            count = len(face_rows)
             if count > 0:
-                conn.execute("UPDATE faces SET person_id = ? WHERE media_id = ?", (person_id, media_id))
+                conn.execute(
+                    "UPDATE faces SET person_id = ? WHERE media_id = ?", (person_id, media_id)
+                )
             elif person_id is not None:
                 from .storage import serialize_embedding
                 conn.execute(
                     "INSERT INTO faces (media_id, person_id, embedding) VALUES (?, ?, ?)",
-                    (media_id, person_id, serialize_embedding([]))
+                    (media_id, person_id, serialize_embedding([])),
                 )
 
+        # --- Determine new output destination ---
         people = self.store.load_people()
-        records = self.store.load_embeddings()
-        old_index = self.store.load_index()
-        clusters = self.store.load_clusters()
+        people_by_id = {p.id: p for p in people}
 
-        recompute_centroids(people, records)
-        from .cli import _input_root
-        in_root = _input_root(input_root, records)
-        index = build_index(records, people, in_root, self.output_root)
+        if person_id is not None and person_id in people_by_id:
+            from .registry import validate_display_name
+            folder = validate_display_name(people_by_id[person_id].display_name)
+        else:
+            folder = "Unknown"
 
-        sync_output(old_index, index, self.output_root, self.config.copy_mode)
-        self.store.save(people, records, index, clusters)
-        self.generate_thumbnails()
+        try:
+            relative = abs_path.relative_to(abs_path.parent.parent)
+        except ValueError:
+            relative = Path(abs_path.name)
+        new_dest = self.output_root / folder / abs_path.name
+
+        # --- Move the output file (only this one file) ---
+        if old_dest and old_dest != new_dest and old_dest.is_file():
+            new_dest.parent.mkdir(parents=True, exist_ok=True)
+            import shutil
+            if self.config.copy_mode:
+                shutil.copy2(str(old_dest), str(new_dest))
+            else:
+                try:
+                    import os
+                    os.link(str(abs_path), str(new_dest))
+                except OSError:
+                    shutil.copy2(str(abs_path), str(new_dest))
+            # Remove old link/copy
+            try:
+                old_dest.unlink()
+            except OSError:
+                pass
+            # Clean up empty parent directories
+            try:
+                old_dest.parent.rmdir()
+            except OSError:
+                pass
+        elif not new_dest.exists() and abs_path.is_file():
+            new_dest.parent.mkdir(parents=True, exist_ok=True)
+            import shutil, os
+            if self.config.copy_mode:
+                shutil.copy2(str(abs_path), str(new_dest))
+            else:
+                try:
+                    os.link(str(abs_path), str(new_dest))
+                except OSError:
+                    shutil.copy2(str(abs_path), str(new_dest))
+
+        # --- Update only this media row's destination in DB ---
+        new_dest_stored = self.store._to_stored(str(new_dest))
+        with self.store._get_connection() as conn:
+            conn.execute(
+                "UPDATE media SET destination = ? WHERE id = ?",
+                (new_dest_stored, media_id),
+            )
+
+        # --- Recompute centroids for only the affected people ---
+        affected_ids = old_person_ids | ({person_id} if person_id else set())
+        affected_people = [p for p in people if p.id in affected_ids]
+
+        import numpy as np
+        from .models import normalized
+
+        for person in affected_people:
+            person_records = self.store.load_embeddings_for_person(person.id)
+            embeddings = [
+                normalized(face.embedding)
+                for record in person_records.values()
+                for face in record.faces
+                if face.person_id == person.id and face.embedding
+            ]
+            person.embedding_count = len(embeddings)
+            if embeddings:
+                person.centroid = normalized(np.mean(np.vstack(embeddings), axis=0)).tolist()
+                if len(embeddings) <= 30:
+                    person.prototypes = [e.tolist() for e in embeddings]
+                else:
+                    from sklearn.cluster import KMeans
+                    km = KMeans(n_clusters=30, n_init="auto", random_state=42)
+                    km.fit(np.vstack(embeddings))
+                    person.prototypes = km.cluster_centers_.tolist()
+            else:
+                person.centroid = []
+                person.prototypes = []
+
+            # Persist updated centroid/count directly to DB
+            from .storage import serialize_embedding, serialize_prototypes
+            with self.store._get_connection() as conn:
+                conn.execute(
+                    """UPDATE persons SET embedding_count = ?, centroid = ?, prototypes = ?
+                       WHERE id = ?""",
+                    (
+                        person.embedding_count,
+                        serialize_embedding(person.centroid),
+                        serialize_prototypes(person.prototypes),
+                        person.id,
+                    ),
+                )
+
+            # Regenerate thumbnail for this person only
+            self._generate_person_thumbnail(person)
+
 
     def search(self, query: str) -> dict[str, list[dict[str, Any]]]:
         self.store._init_db()

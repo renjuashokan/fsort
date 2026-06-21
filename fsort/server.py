@@ -438,6 +438,7 @@ def api_post_reassign(req: ReassignRequest) -> dict[str, str]:
         service.reassign_media(req.media_id, req.person_id, in_root)
         return {"status": "success", "message": "Media reassigned successfully."}
     except (ValueError, RuntimeError) as e:
+        logger.error("reassign failed: media_id=%s person_id=%r error=%s", req.media_id, req.person_id, e)
         raise HTTPException(status_code=400, detail=str(e))
 
 
