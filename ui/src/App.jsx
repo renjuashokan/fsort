@@ -42,6 +42,7 @@ export default function App() {
   const [renameOpen, setRenameOpen] = useState(false);
   const [mergeOpen, setMergeOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  const [isReassigning, setIsReassigning] = useState(false);
 
   // Refs
   const containerRef = useRef(null);
@@ -77,9 +78,11 @@ export default function App() {
   };
 
   const handleReassignMedia = async (mediaId, targetPersonId) => {
+    setIsReassigning(true);
     try {
       const data = await api.reassignMedia(mediaId, targetPersonId);
       if (data.status === "success") {
+        showToast("Reassigned successfully!");
         // Remove item from current media list safely
         if (viewerOpen) {
           galleryState.setMedia((prevMedia) => {
@@ -108,10 +111,13 @@ export default function App() {
         peopleState.loadPeople(peopleState.peoplePage);
         peopleState.loadViewerPeople();
       } else {
-        showToast(data.message, "error");
+        // FastAPI errors use `detail`, fallback to `message`
+        showToast(data.detail || data.message || "Reassign failed", "error");
       }
     } catch (err) {
       showToast(err.message, "error");
+    } finally {
+      setIsReassigning(false);
     }
   };
 
@@ -208,6 +214,7 @@ export default function App() {
           viewerPeople={peopleState.viewerPeople}
           onReassign={handleReassignMedia}
           onCreateNewPerson={() => setCreateOpen(true)}
+          isReassigning={isReassigning}
         />
       )}
     </div>
