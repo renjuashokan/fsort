@@ -458,6 +458,41 @@ def api_get_search(query: str) -> dict[str, Any]:
     return service.search(query)
 
 
+@app.get("/api/search/semantic")
+def api_semantic_search(query: str, limit: int = 50) -> dict[str, Any]:
+    """Search photos by natural-language description using CLIP embeddings.
+
+    Requires ``clip_enabled: true`` in config.yaml and a completed CLIP index.
+    Returns up to *limit* photos ranked by semantic similarity to *query*.
+    """
+    service = get_service()
+    if not service.config.clip_enabled:
+        return {
+            "enabled": False,
+            "message": "CLIP semantic search is disabled. Set clip_enabled: true in config.yaml.",
+            "results": [],
+        }
+    results = service.semantic_search(query, top_k=limit)
+    return {"enabled": True, "query": query, "results": results}
+
+
+@app.post("/api/clip/index")
+def api_clip_index(background_tasks: BackgroundTasks) -> dict[str, str]:
+    """Trigger CLIP embedding indexing for all un-indexed media in the background.
+
+    This is useful when enabling CLIP on an existing library — run this once
+    to index all previously extracted photos without re-running face extraction.
+    """
+    service = get_service()
+    if not service.config.clip_enabled:
+        return {
+            "status": "disabled",
+            "message": "CLIP is disabled. Set clip_enabled: true in config.yaml first.",
+        }
+    background_tasks.add_task(service.clip_index, True)
+    return {"status": "started", "message": "CLIP indexing started in the background."}
+
+
 # --- Frontend Static Assets Serving & SPA Fallback ---
 
 # Resolve UI dist directory:

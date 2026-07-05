@@ -132,7 +132,8 @@ class RegistryStore:
                     size INTEGER,
                     media_type TEXT,
                     processed INTEGER DEFAULT 0,
-                    destination TEXT
+                    destination TEXT,
+                    clip_embedding BLOB
                 )
             """)
             conn.execute("""
@@ -155,6 +156,11 @@ class RegistryStore:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_media_path ON media(path);")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_faces_media_id ON faces(media_id);")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_faces_person_id ON faces(person_id);")
+
+            # Migrate existing media table: add clip_embedding column if missing
+            media_cols = [row["name"] for row in conn.execute("PRAGMA table_info(media)").fetchall()]
+            if "clip_embedding" not in media_cols:
+                conn.execute("ALTER TABLE media ADD COLUMN clip_embedding BLOB")
 
         if not db_existed:
             self._migrate_if_needed()
@@ -376,6 +382,39 @@ class RegistryStore:
                     "destination": destination,
                 }
         return index
+
+    def load_clip_embeddings(self) -> dict[int, bytes]:
+        """Return {media_id: clip_embedding_blob} for all rows that have a CLIP embedding."""
+        self._init_db()
+        result: dict[int, bytes] = {}
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT id, clip_embedding FROM media WHERE clip_embedding IS NOT NULL"
+            )
+            for row in cursor:
+                result[row["id"]] = bytes(row["clip_embedding"])
+        return result
+
+    def get_media_without_clip(self) -> list[tuple[int, str]]:
+        """Return [(media_id, abs_path)] for all media rows missing a CLIP embedding."""
+        self._init_db()
+        rows: list[tuple[int, str]] = []
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT id, path FROM media WHERE clip_embedding IS NULL"
+            )
+            for row in cursor:
+                rows.append((row["id"], self._to_abs(row["path"])))
+        return rows
+
+    def save_clip_embedding(self, media_id: int, embedding: bytes) -> None:
+        """Persist a single CLIP embedding blob for the given media row."""
+        self._init_db()
+        with self._get_connection() as conn:
+            conn.execute(
+                "UPDATE media SET clip_embedding = ? WHERE id = ?",
+                (embedding, media_id),
+            )
 
     def load_clusters(self) -> dict[str, Any]:
         self._init_db()

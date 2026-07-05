@@ -1,4 +1,7 @@
 video_interval: 2
+# Set to true to extract only one frame per video (at video_interval seconds)
+# instead of sampling the full video. Much faster for large video libraries.
+video_single_frame: true
 match_threshold: 0.42
 dbscan_eps: 0.45
 min_samples: 2
@@ -11,3 +14,14 @@ model_name: buffalo_l
 # Mount point of the HDD on this machine.
 # Set via FSORT_HDD_ROOT env var in: sudo systemctl edit fsort
 hdd_root: "/mnt/sda1"
+
+# ── CLIP semantic search ──────────────────────────────────────────────────────
+# Set clip_enabled to true to index whole-image CLIP embeddings during
+# extraction and enable keyword search (e.g. "sunglass", "beach", "dog").
+# On first use the model (~150 MB) is downloaded from HuggingFace once.
+clip_enabled: false
+# CLIP model to use. Smaller = faster; larger = more accurate.
+#   ViT-B-32__openai          ~150 MB  (recommended, good for most use cases)
+#   ViT-B-16__openai          ~343 MB  (better quality)
+#   ViT-L-14__openai          ~890 MB  (best quality, slowest)
+clip_model: "ViT-B-32__openai"

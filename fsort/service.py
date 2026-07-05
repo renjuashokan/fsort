@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 from .config import Config
 from .models import MediaRecord, Person
 from .organizer import build_index, sync_output
@@ -119,6 +121,10 @@ class FsortService:
         if pending_checkpoint:
             self.store.save(people, records, index, clusters)
 
+        # Run CLIP indexing on any newly-added (or previously missed) media
+        if self.config.clip_enabled:
+            self.clip_index(show_progress=show_progress)
+
         return {
             "scanned": scanned,
             "processed": processed,
@@ -126,6 +132,140 @@ class FsortService:
             "failed": failed,
             "deleted": deleted,
         }
+
+    def clip_index(
+        self,
+        show_progress: bool = True,
+        progress_callback: Any = None,
+    ) -> dict[str, int]:
+        """Build (or refresh) CLIP embeddings for all media that don't have one yet.
+
+        Can be called independently of extract() to add semantic search to an
+        existing library, or is automatically called at the end of extract()
+        when config.clip_enabled is True.
+        """
+        if not self.config.clip_enabled:
+            return {"indexed": 0, "skipped": 0, "failed": 0}
+
+        from tqdm import tqdm
+        from .clip_encoder import ClipVisualEncoder, serialize_clip_embedding
+
+        import onnxruntime as ort
+        available = ort.get_available_providers()
+        if self.config.gpu and "CUDAExecutionProvider" in available:
+            providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+        else:
+            providers = ["CPUExecutionProvider"]
+
+        encoder = ClipVisualEncoder(
+            model_name=self.config.clip_model,
+            cache_root=self.cache_root,
+            providers=providers,
+        )
+
+        pending = self.store.get_media_without_clip()
+        total = len(pending)
+        if progress_callback:
+            progress_callback(0, total)
+
+        indexed = 0
+        failed = 0
+        skipped = 0
+
+        iterator = tqdm(pending, desc="CLIP indexing", disable=not show_progress)
+        for idx, (media_id, abs_path) in enumerate(iterator):
+            path = Path(abs_path)
+            if not path.is_file():
+                skipped += 1
+                if progress_callback:
+                    progress_callback(idx + 1, total)
+                continue
+            try:
+                from .extractor import VIDEO_EXTENSIONS
+                if path.suffix.lower() in VIDEO_EXTENSIONS:
+                    embedding = _clip_encode_video_frame(encoder, path)
+                else:
+                    embedding = encoder.encode(path)
+                blob = serialize_clip_embedding(embedding)
+                self.store.save_clip_embedding(media_id, blob)
+                indexed += 1
+            except Exception as exc:
+                if show_progress:
+                    tqdm.write(f"[clip] warning: skipped {path}: {exc}")
+                failed += 1
+            if progress_callback:
+                progress_callback(idx + 1, total)
+
+        return {"indexed": indexed, "skipped": skipped, "failed": failed}
+
+    def semantic_search(self, query: str, top_k: int = 50) -> list[dict[str, Any]]:
+        """Search photos by natural-language query using CLIP embeddings.
+
+        Returns a list of dicts (media_id, filename, thumbnail_url, media_url,
+        score) sorted by cosine similarity descending.
+        """
+        if not self.config.clip_enabled:
+            return []
+
+        from .clip_encoder import ClipTextualEncoder, deserialize_clip_embedding
+
+        import onnxruntime as ort
+        available = ort.get_available_providers()
+        if self.config.gpu and "CUDAExecutionProvider" in available:
+            providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+        else:
+            providers = ["CPUExecutionProvider"]
+
+        text_encoder = ClipTextualEncoder(
+            model_name=self.config.clip_model,
+            cache_root=self.cache_root,
+            providers=providers,
+        )
+        query_vec = text_encoder.encode(query)
+        q_norm = float(np.linalg.norm(query_vec))
+        if q_norm > 0:
+            query_vec = query_vec / q_norm
+
+        # Load all clip embeddings from DB
+        blobs = self.store.load_clip_embeddings()
+        if not blobs:
+            return []
+
+        media_ids = list(blobs.keys())
+        # Stack into matrix for vectorized cosine similarity
+        matrix = np.stack(
+            [deserialize_clip_embedding(blobs[mid]) for mid in media_ids], axis=0
+        )  # shape: (N, D)
+        # Normalize rows
+        norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+        norms = np.where(norms == 0, 1.0, norms)
+        matrix = matrix / norms
+        scores = matrix @ query_vec  # shape: (N,)
+
+        # Get top-k indices
+        top_indices = _np.argsort(-scores)[:top_k]
+
+        # Fetch media metadata from DB
+        results: list[dict[str, Any]] = []
+        self.store._init_db()
+        with self.store._get_connection() as conn:
+            for i in top_indices:
+                mid = media_ids[i]
+                score = float(scores[i])
+                row = conn.execute(
+                    "SELECT path, media_type FROM media WHERE id = ?", (mid,)
+                ).fetchone()
+                if not row:
+                    continue
+                results.append({
+                    "id": mid,
+                    "filename": Path(self.store._to_abs(row["path"])).name,
+                    "type": row["media_type"],
+                    "score": round(score, 4),
+                    "thumbnail_url": f"/api/media/{mid}/thumbnail",
+                    "media_url": f"/api/media/{mid}",
+                })
+        return results
 
     def organize(self, input_root: Path | None = None) -> dict[str, int]:
         people = self.store.load_people()
@@ -787,3 +927,28 @@ class FsortService:
                     "media_url": f"/api/media/{row['id']}",
                 })
         return {"people": people_results, "media": media_results}
+
+
+def _clip_encode_video_frame(encoder: "Any", path: "Path") -> "Any":
+    """Grab the first decodable frame from a video and CLIP-encode it.
+
+    Used by clip_index() so that video files receive a meaningful visual
+    embedding based on their first readable frame.
+    """
+    import io
+    import cv2
+    from PIL import Image as PILImage
+
+    cap = cv2.VideoCapture(str(path))
+    try:
+        ok, frame = cap.read()
+    finally:
+        cap.release()
+    if not ok or frame is None:
+        raise ValueError("Could not read a frame from video")
+    # cv2 BGR → RGB PIL image
+    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    pil_img = PILImage.fromarray(rgb)
+    buf = io.BytesIO()
+    pil_img.save(buf, format="JPEG")
+    return encoder.encode_bytes(buf.getvalue())
