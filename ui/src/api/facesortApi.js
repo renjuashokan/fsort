@@ -71,5 +71,11 @@ export const api = {
   search: async (query) => {
     const res = await fetch(`/api/search?query=${encodeURIComponent(query)}`);
     return res.json();
-  }
+  },
+
+  semanticSearch: async (query, limit = 50) => {
+    const params = new URLSearchParams({ query, limit: String(limit) });
+    const res = await fetch(`/api/search/semantic?${params.toString()}`);
+    return res.json();
+  },
 };

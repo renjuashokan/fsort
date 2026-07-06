@@ -19,9 +19,9 @@ hdd_root: "/mnt/sda1"
 # Set clip_enabled to true to index whole-image CLIP embeddings during
 # extraction and enable keyword search (e.g. "sunglass", "beach", "dog").
 # On first use the model (~150 MB) is downloaded from HuggingFace once.
-clip_enabled: false
+clip_enabled: true
 # CLIP model to use. Smaller = faster; larger = more accurate.
 #   ViT-B-32__openai          ~150 MB  (recommended, good for most use cases)
 #   ViT-B-16__openai          ~343 MB  (better quality)
 #   ViT-L-14__openai          ~890 MB  (best quality, slowest)
-clip_model: "ViT-B-32__openai"
+clip_model: "ViT-B-16__openai"

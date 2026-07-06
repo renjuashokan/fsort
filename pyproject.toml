@@ -1,6 +1,6 @@
 [project]
 name = "fsort"
-version = "0.1.0"
+version = "0.1.1"
 description = "Incremental, offline face-based photo organizer"
 readme = "README.md"
 requires-python = ">=3.11"

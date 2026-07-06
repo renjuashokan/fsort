@@ -243,7 +243,7 @@ class FsortService:
         scores = matrix @ query_vec  # shape: (N,)
 
         # Get top-k indices
-        top_indices = _np.argsort(-scores)[:top_k]
+        top_indices = np.argsort(-scores)[:top_k]
 
         # Fetch media metadata from DB
         results: list[dict[str, Any]] = []

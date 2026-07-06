@@ -39,7 +39,10 @@ class Config:
 
     @classmethod
     def load(cls, path: Path | None) -> "Config":
-        if path == Path("config.yaml") and not path.exists():
+        # If the specified config file doesn't exist (covers both the bare
+        # "config.yaml" default and explicit paths like /opt/fsort/config.yaml
+        # that haven't been created yet), fall back to ~/.fsort/config.yaml.
+        if path is not None and not path.exists():
             home_config = Path.home() / ".fsort" / "config.yaml"
             if home_config.exists():
                 path = home_config
@@ -61,7 +64,7 @@ class Config:
                         "server_port": 9876,
                         "server_host": "127.0.0.1",
                         "hdd_root": "",
-                        "clip_enabled": False,
+                        "clip_enabled": True,
                         "clip_model": "ViT-B-32__openai",
                     }
                     with home_config.open("w", encoding="utf-8") as handle:

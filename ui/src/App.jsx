@@ -26,7 +26,7 @@ import MergePersonModal from "./modals/MergePersonModal";
 
 export default function App() {
   // Navigation & view states
-  const [view, setView] = useState("home"); // "home", "gallery"
+  const [view, setView] = useState("home"); // "home" | "gallery"
   const [selectedPerson, setSelectedPerson] = useState(null);
 
   // Custom states
@@ -37,6 +37,8 @@ export default function App() {
   // Media viewer modal states
   const [viewerIndex, setViewerIndex] = useState(null);
   const [viewerOpen, setViewerOpen] = useState(false);
+  // Holds semantic search results when viewer is opened from a search result
+  const [semanticViewerMedia, setSemanticViewerMedia] = useState(null);
 
   // Action modals open states
   const [renameOpen, setRenameOpen] = useState(false);
@@ -47,7 +49,6 @@ export default function App() {
   // Refs
   const containerRef = useRef(null);
 
-  // Layout scrolling helpers
   const scrollToTop = () => {
     containerRef.current?.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -61,10 +62,7 @@ export default function App() {
   const handleScroll = (e) => {
     const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
     if (scrollHeight - scrollTop - clientHeight < 150) {
-      if (
-        view === "gallery" &&
-        galleryState.media.length < galleryState.totalMedia
-      ) {
+      if (view === "gallery" && galleryState.media.length < galleryState.totalMedia) {
         galleryState.loadGallery(false);
       }
     }
@@ -83,7 +81,6 @@ export default function App() {
       const data = await api.reassignMedia(mediaId, targetPersonId);
       if (data.status === "success") {
         showToast("Reassigned successfully!");
-        // Remove item from current media list safely
         if (viewerOpen) {
           galleryState.setMedia((prevMedia) => {
             const nextMedia = prevMedia.filter((item) => item.id !== mediaId);
@@ -93,9 +90,7 @@ export default function App() {
             } else {
               setViewerIndex((prevIdx) => {
                 if (prevIdx === null) return null;
-                if (prevIdx >= nextMedia.length) {
-                  return nextMedia.length - 1;
-                }
+                if (prevIdx >= nextMedia.length) return nextMedia.length - 1;
                 return prevIdx;
               });
             }
@@ -104,14 +99,10 @@ export default function App() {
         } else {
           galleryState.setMedia((prev) => prev.filter((item) => item.id !== mediaId));
         }
-
         galleryState.setTotalMedia((prev) => Math.max(0, prev - 1));
-
-        // Reload lists to update count stats
         peopleState.loadPeople(peopleState.peoplePage);
         peopleState.loadViewerPeople();
       } else {
-        // FastAPI errors use `detail`, fallback to `message`
         showToast(data.detail || data.message || "Reassign failed", "error");
       }
     } catch (err) {
@@ -121,23 +112,31 @@ export default function App() {
     }
   };
 
+  // Open viewer with semantic results (read-only, no reassign)
+  const handleViewSemanticResult = (results, idx) => {
+    setSemanticViewerMedia(results);
+    setViewerIndex(idx);
+    setViewerOpen(true);
+  };
+
+  // Viewer uses semantic results when triggered from search, gallery media otherwise
+  const activeViewerMedia =
+    semanticViewerMedia ? semanticViewerMedia : galleryState.media;
+
   return (
     <div
       ref={containerRef}
       onScroll={handleScroll}
       className="min-h-screen h-screen overflow-y-auto flex flex-col bg-slate-950 text-slate-100 selection:bg-violet-600 selection:text-white"
     >
-      {/* Toast Notification */}
       <Toast />
 
-      {/* Header */}
       <Header
         view={view}
         onGoHome={goHome}
         onCreatePerson={() => setCreateOpen(true)}
       />
 
-      {/* Main Content */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 py-6 sm:py-8">
         {view === "home" && (
           <HomePage
@@ -145,6 +144,7 @@ export default function App() {
             onSelectPerson={handleSelectPerson}
             onScrollToTop={scrollToTop}
             offlineCache={offlineCache}
+            onViewSemanticResult={handleViewSemanticResult}
           />
         )}
 
@@ -157,15 +157,16 @@ export default function App() {
             onRenameOpen={() => setRenameOpen(true)}
             onMergeOpen={() => setMergeOpen(true)}
             onViewMedia={(index) => {
+              setSemanticViewerMedia(null);
               setViewerIndex(index);
               setViewerOpen(true);
             }}
             onRemoveMedia={(mediaId) => handleReassignMedia(mediaId, null)}
+            onViewSemanticResult={handleViewSemanticResult}
           />
         )}
       </main>
 
-      {/* Action Modals */}
       <CreatePersonModal
         open={createOpen}
         onClose={() => setCreateOpen(false)}
@@ -200,19 +201,19 @@ export default function App() {
         }}
       />
 
-      {/* Fullscreen Viewer */}
       {viewerOpen && (
         <MediaViewer
-          media={galleryState.media}
+          media={activeViewerMedia}
           viewerIndex={viewerIndex}
           onClose={() => {
             setViewerOpen(false);
             setViewerIndex(null);
+            setSemanticViewerMedia(null);
           }}
           onNavigate={(idx) => setViewerIndex(idx)}
-          selectedPerson={selectedPerson}
-          viewerPeople={peopleState.viewerPeople}
-          onReassign={handleReassignMedia}
+          selectedPerson={semanticViewerMedia ? null : selectedPerson}
+          viewerPeople={semanticViewerMedia ? [] : peopleState.viewerPeople}
+          onReassign={semanticViewerMedia ? () => {} : handleReassignMedia}
           onCreateNewPerson={() => setCreateOpen(true)}
           isReassigning={isReassigning}
         />

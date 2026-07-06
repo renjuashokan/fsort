@@ -20,3 +20,5 @@ nohup.out
 _bmad/
 _bmad-output/
 .agent/
+
+serve-local.sh

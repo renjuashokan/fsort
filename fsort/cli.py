@@ -16,6 +16,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
+    subparsers.add_parser("version", help="print the installed version and exit")
+
     # Legacy / convenience subcommand
     sort_parser = subparsers.add_parser("sort", help="scan and organize media")
     sort_parser.add_argument("input", type=Path)
@@ -112,6 +114,10 @@ def _add_paths(parser: argparse.ArgumentParser, include_input: bool = True) -> N
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
+        if args.command == "version":
+            from importlib.metadata import version as pkg_version
+            print(pkg_version("fsort"))
+            return 0
         if args.command == "serve":
             return _serve(args)
         if args.command == "remap-paths":
