@@ -1,11 +1,12 @@
 [project]
 name = "fsort"
-version = "0.1.0"
+version = "0.1.1"
 description = "Incremental, offline face-based photo organizer"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115.0",
+    "huggingface_hub>=0.27.0",
     "insightface>=1.0.1",
     "numpy>=2.4.6",
     "onnxruntime>=1.26.0; sys_platform == 'darwin' or platform_machine not in 'AMD64,x86_64'",
@@ -14,6 +15,7 @@ dependencies = [
     "pillow>=12.2.0",
     "pyyaml>=6.0.2",
     "scikit-learn>=1.9.0",
+    "tokenizers>=0.21.0",
     "tqdm>=4.68.2",
     "uvicorn>=0.30.0",
 ]

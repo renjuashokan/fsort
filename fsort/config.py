@@ -11,6 +11,10 @@ import yaml
 @dataclass(slots=True)
 class Config:
     video_interval: float = 2.0
+    # When True, extract only a single frame from each video (at video_interval
+    # seconds) instead of sampling every video_interval seconds throughout.
+    # Use this to speed up extraction when full-video scanning is not needed.
+    video_single_frame: bool = False
     match_threshold: float = 0.42
     dbscan_eps: float = 0.45
     min_samples: int = 2
@@ -27,10 +31,18 @@ class Config:
     # same database works on Windows and Linux.
     # Leave empty to use absolute paths (default / single-machine setup).
     hdd_root: str = ""
+    # CLIP semantic search settings.
+    # Set clip_enabled=true to index whole-image CLIP embeddings during extraction
+    # and enable keyword search (e.g. 'sunglass', 'beach') in the web UI.
+    clip_enabled: bool = False
+    clip_model: str = "ViT-B-32__openai"
 
     @classmethod
     def load(cls, path: Path | None) -> "Config":
-        if path == Path("config.yaml") and not path.exists():
+        # If the specified config file doesn't exist (covers both the bare
+        # "config.yaml" default and explicit paths like /opt/fsort/config.yaml
+        # that haven't been created yet), fall back to ~/.fsort/config.yaml.
+        if path is not None and not path.exists():
             home_config = Path.home() / ".fsort" / "config.yaml"
             if home_config.exists():
                 path = home_config
@@ -39,6 +51,7 @@ class Config:
                     home_config.parent.mkdir(parents=True, exist_ok=True)
                     default_data = {
                         "video_interval": 2.0,
+                        "video_single_frame": False,
                         "match_threshold": 0.42,
                         "dbscan_eps": 0.45,
                         "min_samples": 2,
@@ -51,6 +64,8 @@ class Config:
                         "server_port": 9876,
                         "server_host": "127.0.0.1",
                         "hdd_root": "",
+                        "clip_enabled": True,
+                        "clip_model": "ViT-B-32__openai",
                     }
                     with home_config.open("w", encoding="utf-8") as handle:
                         yaml.safe_dump(default_data, handle, default_flow_style=False)

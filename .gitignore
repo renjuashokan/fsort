@@ -16,3 +16,9 @@ output/
 outputs/
 build_deb_temp/
 nohup.out
+
+_bmad/
+_bmad-output/
+.agent/
+
+serve-local.sh

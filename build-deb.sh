@@ -5,7 +5,11 @@ set -e
 if [ "$1" != "" ]; then
   PKG_VERSION="$1"
 else
-  PKG_VERSION="1.0.0"
+  # Auto-read from pyproject.toml so the .deb version always matches the package
+  PKG_VERSION=$(grep -m1 '^version' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
+  if [ -z "$PKG_VERSION" ]; then
+    PKG_VERSION="1.0.0"
+  fi
 fi
 
 if [ "$2" != "" ]; then
@@ -155,6 +159,12 @@ cp -r ui "${STAGING_DIR}/opt/fsort/"
 cp pyproject.toml "${STAGING_DIR}/opt/fsort/"
 cp -f LICENSE "${STAGING_DIR}/opt/fsort/" 2>/dev/null || true
 cp -f README.md "${STAGING_DIR}/opt/fsort/" 2>/dev/null || true
+
+# Patch the version in the STAGED pyproject.toml to match the .deb version,
+# so 'face-sort version' always reports the same version as the installed package.
+# The source pyproject.toml is never modified.
+sed -i "s/^version = .*/version = \"${PKG_VERSION}\"/" "${STAGING_DIR}/opt/fsort/pyproject.toml"
+echo "Patched staged pyproject.toml version → ${PKG_VERSION}"
 
 # Set permissions for packaging scripts
 chmod 755 "${STAGING_DIR}/DEBIAN/postinst"

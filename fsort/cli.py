@@ -16,6 +16,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
+    subparsers.add_parser("version", help="print the installed version and exit")
+
     # Legacy / convenience subcommand
     sort_parser = subparsers.add_parser("sort", help="scan and organize media")
     sort_parser.add_argument("input", type=Path)
@@ -75,6 +77,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_paths(thumbnails)
 
+    clip_index = subparsers.add_parser(
+        "clip-index",
+        help="build CLIP semantic embeddings for all un-indexed media (requires clip_enabled: true)",
+    )
+    _add_paths(clip_index, include_input=False)
+    clip_index.add_argument("--config", type=Path, default=Path("config.yaml"))
+    clip_index.add_argument("--no-progress", action="store_true")
+
     remap = subparsers.add_parser(
         "remap-paths",
         help="migrate existing DB paths from one HDD mount point to another (one-time fix for Windows→Linux moves)",
@@ -104,6 +114,10 @@ def _add_paths(parser: argparse.ArgumentParser, include_input: bool = True) -> N
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
+        if args.command == "version":
+            from importlib.metadata import version as pkg_version
+            print(pkg_version("fsort"))
+            return 0
         if args.command == "serve":
             return _serve(args)
         if args.command == "remap-paths":
@@ -194,6 +208,20 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "thumbnails":
             count = service.generate_thumbnails()
             print(f"Generated/updated thumbnails for {count} people.")
+            return 0
+        elif args.command == "clip-index":
+            if not config.clip_enabled:
+                print(
+                    "error: clip_enabled is false in config.yaml.\n"
+                    "Set clip_enabled: true to use CLIP semantic search.",
+                    file=sys.stderr,
+                )
+                return 2
+            res = service.clip_index(show_progress=not args.no_progress)
+            print(
+                f"CLIP indexing done: indexed={res['indexed']} "
+                f"skipped={res['skipped']} failed={res['failed']}"
+            )
             return 0
         elif args.command == "remap-paths":
             return _remap_paths(args)

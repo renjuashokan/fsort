@@ -37,6 +37,28 @@ class FaceExtractor:
         if not capture.isOpened():
             raise ValueError("OpenCV could not open the video")
         fps = capture.get(cv2.CAP_PROP_FPS) or 25.0
+
+        if self.config.video_single_frame:
+            # Single-frame mode: seek to video_interval seconds and read one frame.
+            target_frame = max(0, round(fps * self.config.video_interval))
+            capture.set(cv2.CAP_PROP_POS_FRAMES, target_frame)
+            ok, frame = capture.read()
+            capture.release()
+            if not ok or frame is None:
+                # Seek failed — fall back to frame 0
+                capture2 = cv2.VideoCapture(str(path))
+                ok, frame = capture2.read()
+                capture2.release()
+                target_frame = 0
+            if not ok or frame is None:
+                return []
+            records = []
+            for face in self._faces_from_frame(frame):
+                face.frame = target_frame
+                records.append(face)
+            return records
+
+        # Default: sample every video_interval seconds throughout the video
         step = max(1, round(fps * self.config.video_interval))
         records: list[FaceRecord] = []
         frame_number = 0
