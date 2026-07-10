@@ -19,6 +19,7 @@ StandardError=inherit
 ExecStart=/opt/fsort/.venv/bin/face-sort serve --cache ${FSORT_CACHE} --output ${FSORT_OUTPUT} --host ${FSORT_HOST} --port ${FSORT_PORT} --config ${FSORT_CONFIG}
 Restart=always
 RestartSec=10
+LimitNOFILE=65536
 
 [Install]
 WantedBy=multi-user.target

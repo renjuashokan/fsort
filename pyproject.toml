@@ -9,8 +9,11 @@ dependencies = [
     "huggingface_hub>=0.27.0",
     "insightface>=1.0.1",
     "numpy>=2.4.6",
-    "onnxruntime>=1.26.0; sys_platform == 'darwin' or platform_machine not in 'AMD64,x86_64'",
-    "onnxruntime-gpu[cuda,cudnn]>=1.26.0; sys_platform != 'darwin' and platform_machine in 'AMD64,x86_64'",
+    "onnxruntime>=1.16.0; sys_platform == 'darwin' or platform_machine not in 'AMD64,x86_64'",
+    # onnxruntime-gpu 1.26+ requires CUDA 13 (libcudart.so.13).
+    # 1.24.x / 1.25.x are the last releases supporting CUDA 12.
+    # Python 3.14 wheels are only available from 1.24.1 onwards.
+    "onnxruntime-gpu>=1.24.0,<1.26.0; sys_platform != 'darwin' and platform_machine in 'AMD64,x86_64'",
     "opencv-python>=4.13.0.92",
     "pillow>=12.2.0",
     "pyyaml>=6.0.2",

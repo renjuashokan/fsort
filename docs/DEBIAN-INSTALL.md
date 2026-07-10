@@ -4,27 +4,40 @@ This document provides instructions for installing FaceSort using the Debian pac
 
 ## Prerequisites
 
-- Debian-based Linux distribution (Debian, Ubuntu, Raspberry Pi OS, etc.)
-- Python 3 (specifically Python 3.14 or newer)
-- FFmpeg and common system library packages:
+- Debian-based Linux distribution (Debian 12+, Ubuntu 22.04+, Raspberry Pi OS, etc.)
+- Python 3.11 or newer with `venv` and `pip` support
+- System libraries required by FaceSort:
+
   ```bash
-  sudo apt install ffmpeg libgl1-mesa-glx libglib2.0-0
+  sudo apt update
+  sudo apt install python3 python3-venv python3-pip ffmpeg libgl1 libglib2.0-0
   ```
+
+  > **Note for Ubuntu 24.04+ / Debian 13+**: `libgl1-mesa-glx` has been replaced by
+  > `libgl1`. If `apt` reports `libgl1-mesa-glx` unavailable, use `libgl1` instead (already
+  > reflected in the command above).
+
+  > **Note on FFmpeg**: On some Ubuntu releases, `ffmpeg` may report unmet dependencies
+  > due to the system's apt sources. Try `sudo apt --fix-broken install` first if this
+  > happens, or ensure your system's package index is up to date with `sudo apt update`.
 
 ## Installation
 
 1. Download the appropriate .deb package:
    - `fsort_*_all.deb` (Architecture: all)
 
-2. Install the package:
+2. Install prerequisites and then the package:
    ```bash
+   sudo apt update
+   sudo apt install python3 python3-venv python3-pip ffmpeg libgl1 libglib2.0-0
    sudo dpkg -i fsort_*.deb
    ```
 
-3. If you encounter any dependency issues, run:
+3. If `dpkg` reports unresolved dependencies after step 2, run:
    ```bash
-   sudo apt-get install -f
+   sudo apt --fix-broken install
    ```
+
 
 ## Post-Installation
 
@@ -35,6 +48,14 @@ After installation, the FaceSort service will be automatically enabled and start
 - **Default Output Directory**: `/var/lib/fsort/sorted`
 - **Default Port**: `9876`
 - **Service Name**: `fsort.service`
+- **CLI command**: `face-sort` (available system-wide via `/usr/local/bin/face-sort`)
+
+  > **If `face-sort: command not found`** after installing an older `.deb`, the symlink was
+  > not created automatically. Add it manually:
+  > ```bash
+  > sudo ln -sf /opt/fsort/.venv/bin/face-sort /usr/local/bin/face-sort
+  > ```
+  > Rebuilding and reinstalling the latest `.deb` will also fix this permanently.
 
 To verify the service is running:
 ```bash

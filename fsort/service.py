@@ -39,7 +39,12 @@ class FsortService:
         scanned = len(files)
 
         current = {str(path) for path in files}
-        stale = set(records) - current
+        # Only consider records whose path lives under the current input_root
+        # as candidates for pruning.  Records belonging to other directories
+        # that were scanned previously must NOT be touched here.
+        input_root_str = str(input_root)
+        records_in_scope = {p for p in records if p.startswith(input_root_str)}
+        stale = records_in_scope - current
         for path in stale:
             del records[path]
         deleted = len(stale)
