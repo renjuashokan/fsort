@@ -25,6 +25,11 @@ def build_parser() -> argparse.ArgumentParser:
     sort_parser.add_argument("--config", type=Path, default=Path("config.yaml"))
     sort_parser.add_argument("--checkpoint-interval", type=int)
     sort_parser.add_argument("--no-progress", action="store_true")
+    sort_parser.add_argument(
+        "--re-sort-unknown",
+        action="store_true",
+        help="after extract+organize, re-run assignment on Unknown faces without re-scanning",
+    )
 
     # Priority 2: Extract subcommand
     extract_parser = subparsers.add_parser("extract", help="scan and extract face embeddings")
@@ -84,6 +89,16 @@ def build_parser() -> argparse.ArgumentParser:
     _add_paths(clip_index, include_input=False)
     clip_index.add_argument("--config", type=Path, default=Path("config.yaml"))
     clip_index.add_argument("--no-progress", action="store_true")
+
+    re_sort = subparsers.add_parser(
+        "re-sort-unknown",
+        help=(
+            "re-run face assignment and clustering on Unknown faces without re-scanning "
+            "(no extraction; uses existing DB embeddings)"
+        ),
+    )
+    _add_paths(re_sort, include_input=False)
+    re_sort.add_argument("--config", type=Path, default=Path("config.yaml"))
 
     remap = subparsers.add_parser(
         "remap-paths",
@@ -160,6 +175,20 @@ def main(argv: list[str] | None = None) -> int:
             print(
                 f"organize: assigned={res_o['assigned']} people_created={res_o['people_created']} "
                 f"written={res_o['files_written']} removed={res_o['files_removed']}"
+            )
+            if getattr(args, "re_sort_unknown", False):
+                res_r = service.re_sort_unknown(args.input)
+                print(
+                    f"re-sort-unknown: assigned={res_r['assigned']} people_created={res_r['people_created']} "
+                    f"written={res_r['files_written']} removed={res_r['files_removed']}"
+                )
+            return 0
+        elif args.command == "re-sort-unknown":
+            in_root = args.input if hasattr(args, "input") else None
+            res = service.re_sort_unknown(in_root)
+            print(
+                f"assigned={res['assigned']} people_created={res['people_created']} "
+                f"written={res['files_written']} removed={res['files_removed']}"
             )
             return 0
         elif args.command == "list":

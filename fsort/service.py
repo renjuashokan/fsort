@@ -313,6 +313,59 @@ class FsortService:
             "files_removed": removed,
         }
 
+    def re_sort_unknown(self, input_root: Path | None = None) -> dict[str, int]:
+        """Re-run assignment and clustering on all faces currently without a person.
+
+        This skips extraction entirely — it only re-runs the organize phase so
+        that faces already in the DB (including those that landed in Unknown/ on
+        a previous sort) are matched against existing people or clustered into new
+        ones.  Useful after you have renamed/merged clusters or simply want to
+        retry assignment with the current people registry.
+
+        Returns the same stats dict as organize().
+        """
+        people = self.store.load_people()
+        records = self.store.load_embeddings()
+        old_index = self.store.load_index()
+
+        recompute_centroids(people, records)
+
+        # Collect every face that still has no person assigned.
+        unassigned_faces = [
+            face
+            for record in records.values()
+            for face in record.faces
+            if face.person_id is None
+        ]
+
+        assigned = assign_to_existing(
+            unassigned_faces, people, threshold=self.config.match_threshold
+        )
+
+        people_created, clusters = cluster_unknowns(records, people, self.config)
+
+        recompute_centroids(people, records)
+
+        from .cli import _input_root
+        in_root = _input_root(input_root, records)
+
+        index = build_index(records, people, in_root, self.output_root)
+
+        written, removed = sync_output(
+            old_index, index, self.output_root, self.config.copy_mode
+        )
+
+        self.store.save(people, records, index, clusters)
+
+        self.generate_thumbnails()
+
+        return {
+            "assigned": assigned,
+            "people_created": people_created,
+            "files_written": written,
+            "files_removed": removed,
+        }
+
     def rename(
         self, person_val: str, new_name: str, input_root: Path | None = None
     ) -> str:

@@ -56,6 +56,12 @@ face-sort sort D:\Photos --output D:\Sorted --cache D:\face-sort-cache
 
 This sequentially executes both the **extract** and **organize** phases in one command.
 
+Use `--re-sort-unknown` to also run a re-sort pass on any faces that still land in `Unknown/` after the initial organize, without re-scanning any files:
+
+```powershell
+face-sort sort D:\Photos --output D:\Sorted --cache D:\face-sort-cache --re-sort-unknown
+```
+
 ### Separate Extraction & Organization (Recommended)
 
 To run in separate modular phases:
@@ -174,6 +180,32 @@ face-sort organize --input D:\Photos --output D:\Sorted --cache D:\face-sort-cac
 
 `split` operates on the entire identity. It does not select individual photos
 or faces from that identity.
+
+### Re-sort Unknown faces
+
+After a sort run, files that could not be matched to any person are placed in
+`Unknown/`. Running `re-sort-unknown` re-runs the face assignment and DBSCAN
+clustering phases on those faces using the **existing DB embeddings** — no
+re-scanning or GPU/ONNX work is performed. This is useful when:
+
+* More people have been created or renamed since the last sort, giving the
+  matcher more clusters to match against.
+* You have tuned `match_threshold` or `dbscan_eps` in `config.yaml` and want
+  to retry assignment without re-processing all media.
+
+```powershell
+face-sort re-sort-unknown --output D:\Sorted --cache D:\face-sort-cache
+```
+
+Example output:
+
+```text
+assigned=685 people_created=60 written=669 removed=669
+```
+
+The command accepts the same `--output`, `--cache`, and `--config` flags as
+the other commands. It does **not** take an `--input` argument because it
+operates entirely from the cached database.
 
 ### Generate face thumbnails
 
