@@ -64,8 +64,8 @@ class Config:
                         "server_port": 9876,
                         "server_host": "127.0.0.1",
                         "hdd_root": "",
-                        "clip_enabled": True,
-                        "clip_model": "ViT-B-32__openai",
+                        "clip_enabled": self.clip_enabled,
+                        "clip_model": self.clip_model,
                     }
                     with home_config.open("w", encoding="utf-8") as handle:
                         yaml.safe_dump(default_data, handle, default_flow_style=False)
