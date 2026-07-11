@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { X, ChevronLeft, ChevronRight, Info, User } from "lucide-react";
+import { X, ChevronLeft, ChevronRight, Info, Users, Pencil, ChevronDown, ChevronUp } from "lucide-react";
+import { api } from "../api/facesortApi";
 
 export default function MediaViewer({
   media,
@@ -11,6 +12,7 @@ export default function MediaViewer({
   onReassign,
   onCreateNewPerson,
   isReassigning = false,
+  peopleRefreshKey = 0,
 }) {
   const viewerRef = useRef(null);
   const comboboxRef = useRef(null);
@@ -22,8 +24,45 @@ export default function MediaViewer({
   const [searchQuery, setSearchQuery]   = useState("");
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [highlightIdx, setHighlightIdx] = useState(0);
+
+  // People in this photo
+  const [mediaPeople, setMediaPeople] = useState([]);
+  const [peopleLoading, setPeopleLoading] = useState(false);
+  // Collapsible edit section
+  const [editOpen, setEditOpen] = useState(false);
+
   const currentViewerMedia =
     viewerIndex !== null && media ? media[viewerIndex] : null;
+
+  // Fetch people for the current media item whenever it changes
+  useEffect(() => {
+    if (!currentViewerMedia) {
+      setMediaPeople([]);
+      return;
+    }
+    let cancelled = false;
+    setPeopleLoading(true);
+    api.getMediaPeople(currentViewerMedia.id).then((people) => {
+      if (!cancelled) {
+        setMediaPeople(people || []);
+        setPeopleLoading(false);
+      }
+    }).catch(() => {
+      if (!cancelled) {
+        setMediaPeople([]);
+        setPeopleLoading(false);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [currentViewerMedia?.id, peopleRefreshKey]);
+
+  // Reset edit section when navigating
+  useEffect(() => {
+    setEditOpen(false);
+    setPending(null);
+    setSearchQuery("");
+    setDropdownOpen(false);
+  }, [viewerIndex]);
 
   const navigateViewer = useCallback(
     (direction) => {
@@ -102,6 +141,8 @@ export default function MediaViewer({
 
   if (!currentViewerMedia) return null;
 
+  const canEdit = !!selectedPerson || mediaPeople.length > 0 || !selectedPerson;
+
   return (
     <div
       ref={viewerRef}
@@ -175,7 +216,8 @@ export default function MediaViewer({
 
         {/* Info & Editing Sidebar — no height cap on mobile; scroll the parent instead */}
         <div className="w-full md:w-80 bg-slate-900/40 border-t md:border-t-0 md:border-l border-slate-900 flex flex-col md:overflow-y-auto shrink-0">
-          <div className="flex flex-col h-full p-4 sm:p-6 gap-4">
+          <div className="flex flex-col h-full p-4 sm:p-6 gap-5">
+
             {/* Filename & meta */}
             <div className="flex items-start gap-3">
               <Info className="w-4 h-4 text-violet-400 mt-0.5 flex-shrink-0" />
@@ -194,163 +236,261 @@ export default function MediaViewer({
               </div>
             </div>
 
-            <div className="flex flex-col sm:flex-row md:flex-col gap-3 flex-1">
-              {/* Current assignment display */}
-              <div className="flex-1">
-                <span className="block text-[10px] uppercase font-bold text-slate-500 tracking-wider mb-1.5">
-                  Assigned Person
-                </span>
-                <div className="px-3 py-2 bg-slate-950/60 border border-slate-900 rounded-xl flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <User className="w-4 h-4 text-violet-400" />
-                    <span className="text-xs font-semibold text-slate-200 truncate max-w-[100px]">
-                      {selectedPerson ? selectedPerson.display_name : "Unknown"}
-                    </span>
-                  </div>
-                  <button
-                    onClick={() => {
-                      if (confirm("Remove this face assignment?")) {
-                        onReassign(currentViewerMedia.id, null);
-                      }
-                    }}
-                    className="text-xs font-semibold text-rose-400 hover:text-rose-300 hover:bg-rose-950/20 px-2 py-1 rounded-lg transition-all whitespace-nowrap"
-                  >
-                    Remove
-                  </button>
-                </div>
-              </div>
+            {/* Divider */}
+            <div className="border-t border-slate-800/60" />
 
-              {/* Searchable reassign combobox */}
-              <div className="flex-1 flex flex-col gap-1.5">
-                <span className="block text-[10px] uppercase font-bold text-slate-500 tracking-wider">
-                  Reassign
-                </span>
-
-                {/* Combobox container */}
-                <div ref={comboboxRef} className="relative">
-                  {/* Input — shows selected name or search text */}
-                  <input
-                    type="text"
-                    disabled={isReassigning}
-                    placeholder={pendingLabel || "Search person…"}
-                    value={searchQuery}
-                    onFocus={() => { setDropdownOpen(true); setHighlightIdx(0); }}
-                    onChange={(e) => {
-                      setSearchQuery(e.target.value);
-                      setDropdownOpen(true);
-                      setHighlightIdx(0);
-                    }}
-                    onKeyDown={(e) => {
-                      const filtered = [
-                        { id: "__new__", display_name: "+ Create New Person" },
-                        ...viewerPeople.filter(
-                          (p) => (!selectedPerson || p.id !== selectedPerson.id) &&
-                            p.display_name.toLowerCase().includes(searchQuery.toLowerCase())
-                        ),
-                      ];
-                      if (e.key === "ArrowDown") {
-                        e.preventDefault();
-                        setHighlightIdx((i) => Math.min(i + 1, filtered.length - 1));
-                      } else if (e.key === "ArrowUp") {
-                        e.preventDefault();
-                        setHighlightIdx((i) => Math.max(i - 1, 0));
-                      } else if (e.key === "Enter" && dropdownOpen && filtered[highlightIdx]) {
-                        e.preventDefault();
-                        const chosen = filtered[highlightIdx];
-                        if (chosen.id === "__new__") {
-                          setPending(null);
-                          setSearchQuery("");
-                          setDropdownOpen(false);
-                          onCreateNewPerson();
-                        } else {
-                          setPending({ index: viewerIndex, personId: chosen.id, label: chosen.display_name });
-                          setSearchQuery("");
-                          setDropdownOpen(false);
-                        }
-                      } else if (e.key === "Escape") {
-                        setDropdownOpen(false);
-                      }
-                    }}
-                    className="w-full bg-slate-950 border border-slate-800 focus:border-violet-500 px-3 py-2 text-xs text-slate-300 placeholder-slate-500 rounded-xl outline-none disabled:opacity-50"
-                  />
-                  {pendingLabel && !searchQuery && (
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-violet-400 font-semibold pointer-events-none">
-                      ✓
+            {/* ── People Section ── */}
+            <div className="flex flex-col gap-3">
+              {/* Header row */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Users className="w-4 h-4 text-violet-400 flex-shrink-0" />
+                  <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">
+                    People
+                  </span>
+                  {!peopleLoading && (
+                    <span className="text-[10px] text-slate-500 font-medium">
+                      {mediaPeople.length === 0
+                        ? "none recognized"
+                        : `${mediaPeople.length} face${mediaPeople.length > 1 ? "s" : ""}`}
                     </span>
                   )}
-
-                  {/* Dropdown list */}
-                  {dropdownOpen && (() => {
-                    const filtered = [
-                      { id: "__new__", display_name: "+ Create New Person" },
-                      ...viewerPeople.filter(
-                        (p) => (!selectedPerson || p.id !== selectedPerson.id) &&
-                          p.display_name.toLowerCase().includes(searchQuery.toLowerCase())
-                      ),
-                    ];
-                    if (filtered.length === 0) return null;
-                    return (
-                      <ul className="absolute z-50 top-full mt-1 w-full max-h-48 overflow-y-auto bg-slate-900 border border-slate-700 rounded-xl shadow-2xl shadow-black/60">
-                        {filtered.map((p, i) => (
-                          <li
-                            key={p.id}
-                            onMouseDown={(e) => {
-                              e.preventDefault(); // prevent input blur
-                              if (p.id === "__new__") {
-                                setPending(null);
-                                setSearchQuery("");
-                                setDropdownOpen(false);
-                                onCreateNewPerson();
-                              } else {
-                                setPending({ index: viewerIndex, personId: p.id, label: p.display_name });
-                                setSearchQuery("");
-                                setDropdownOpen(false);
-                              }
-                            }}
-                            className={`px-3 py-2 text-xs cursor-pointer transition-colors ${
-                              i === highlightIdx
-                                ? "bg-violet-700/50 text-white"
-                                : p.id === "__new__"
-                                ? "text-violet-400 font-semibold hover:bg-slate-800"
-                                : "text-slate-300 hover:bg-slate-800"
-                            }`}
-                          >
-                            {p.display_name}
-                          </li>
-                        ))}
-                      </ul>
-                    );
-                  })()}
                 </div>
 
-                {/* Confirm button */}
-                {pendingPersonId && (
+                {/* Edit faces toggle */}
+                {selectedPerson !== undefined && (
                   <button
-                    disabled={isReassigning}
-                    onClick={() => {
-                      onReassign(currentViewerMedia.id, pendingPersonId);
-                      setPending(null);
-                    }}
-                    className="w-full py-2 text-xs font-semibold bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 disabled:opacity-70 disabled:cursor-not-allowed text-white rounded-xl transition-all active:scale-95 shadow-md shadow-violet-900/30 flex items-center justify-center gap-2"
+                    onClick={() => setEditOpen((o) => !o)}
+                    className="flex items-center gap-1 text-[11px] font-semibold text-violet-400 hover:text-violet-300 transition-colors px-2 py-1 rounded-lg hover:bg-violet-950/30"
                   >
-                    {isReassigning ? (
-                      <>
-                        <svg className="animate-spin w-3.5 h-3.5" viewBox="0 0 24 24" fill="none">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
-                        </svg>
-                        Reassigning…
-                      </>
-                    ) : (
-                      <>✓ Confirm Reassign — {pendingLabel}</>
-                    )}
+                    <Pencil className="w-3 h-3" />
+                    Edit
+                    {editOpen
+                      ? <ChevronUp className="w-3 h-3" />
+                      : <ChevronDown className="w-3 h-3" />}
                   </button>
                 )}
               </div>
+
+              {/* People avatars grid */}
+              {peopleLoading ? (
+                <div className="flex gap-3 py-1">
+                  {[1, 2].map((i) => (
+                    <div key={i} className="flex flex-col items-center gap-1.5 animate-pulse">
+                      <div className="w-14 h-14 rounded-full bg-slate-800/60 border-2 border-slate-700/40" />
+                      <div className="w-10 h-2 rounded bg-slate-800/60" />
+                    </div>
+                  ))}
+                </div>
+              ) : mediaPeople.length === 0 ? (
+                <div className="flex items-center gap-2.5 py-2 px-3 bg-slate-950/40 rounded-xl border border-slate-800/40">
+                  <div className="w-10 h-10 rounded-full bg-slate-800/60 border-2 border-dashed border-slate-700 flex items-center justify-center flex-shrink-0">
+                    <span className="text-slate-500 text-base">?</span>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold text-slate-400">No faces recognized</p>
+                    <p className="text-[10px] text-slate-600">Use Edit to assign a person</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-wrap gap-3">
+                  {mediaPeople.map((person) => (
+                    <PersonAvatar key={person.id} person={person} />
+                  ))}
+                </div>
+              )}
             </div>
+
+            {/* ── Edit Faces (Collapsible Reassign) ── */}
+            {editOpen && selectedPerson !== undefined && (
+              <>
+                <div className="border-t border-slate-800/60" />
+                <div className="flex flex-col gap-3">
+                  <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">
+                    Edit Assignment
+                  </span>
+
+                  {/* Current assignment */}
+                  <div className="px-3 py-2 bg-slate-950/60 border border-slate-900 rounded-xl flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-5 h-5 rounded-full bg-slate-700/60 flex items-center justify-center flex-shrink-0">
+                        <span className="text-[9px] text-slate-400">👤</span>
+                      </div>
+                      <span className="text-xs font-semibold text-slate-200 truncate max-w-[110px]">
+                        {selectedPerson ? selectedPerson.display_name : "Unknown"}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => {
+                        if (confirm("Remove this face assignment?")) {
+                          onReassign(currentViewerMedia.id, null);
+                        }
+                      }}
+                      className="text-xs font-semibold text-rose-400 hover:text-rose-300 hover:bg-rose-950/20 px-2 py-1 rounded-lg transition-all whitespace-nowrap"
+                    >
+                      Remove
+                    </button>
+                  </div>
+
+                  {/* Searchable reassign combobox */}
+                  <div className="flex flex-col gap-1.5">
+                    <span className="block text-[10px] uppercase font-bold text-slate-500 tracking-wider">
+                      Reassign to
+                    </span>
+
+                    <div ref={comboboxRef} className="relative">
+                      <input
+                        type="text"
+                        disabled={isReassigning}
+                        placeholder={pendingLabel || "Search person…"}
+                        value={searchQuery}
+                        onFocus={() => { setDropdownOpen(true); setHighlightIdx(0); }}
+                        onChange={(e) => {
+                          setSearchQuery(e.target.value);
+                          setDropdownOpen(true);
+                          setHighlightIdx(0);
+                        }}
+                        onKeyDown={(e) => {
+                          const filtered = [
+                            { id: "__new__", display_name: "+ Create New Person" },
+                            ...viewerPeople.filter(
+                              (p) => (!selectedPerson || p.id !== selectedPerson.id) &&
+                                p.display_name.toLowerCase().includes(searchQuery.toLowerCase())
+                            ),
+                          ];
+                          if (e.key === "ArrowDown") {
+                            e.preventDefault();
+                            setHighlightIdx((i) => Math.min(i + 1, filtered.length - 1));
+                          } else if (e.key === "ArrowUp") {
+                            e.preventDefault();
+                            setHighlightIdx((i) => Math.max(i - 1, 0));
+                          } else if (e.key === "Enter" && dropdownOpen && filtered[highlightIdx]) {
+                            e.preventDefault();
+                            const chosen = filtered[highlightIdx];
+                            if (chosen.id === "__new__") {
+                              setPending(null);
+                              setSearchQuery("");
+                              setDropdownOpen(false);
+                              onCreateNewPerson();
+                            } else {
+                              setPending({ index: viewerIndex, personId: chosen.id, label: chosen.display_name });
+                              setSearchQuery("");
+                              setDropdownOpen(false);
+                            }
+                          } else if (e.key === "Escape") {
+                            setDropdownOpen(false);
+                          }
+                        }}
+                        className="w-full bg-slate-950 border border-slate-800 focus:border-violet-500 px-3 py-2 text-xs text-slate-300 placeholder-slate-500 rounded-xl outline-none disabled:opacity-50"
+                      />
+                      {pendingLabel && !searchQuery && (
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-violet-400 font-semibold pointer-events-none">
+                          ✓
+                        </span>
+                      )}
+
+                      {/* Dropdown list */}
+                      {dropdownOpen && (() => {
+                        const filtered = [
+                          { id: "__new__", display_name: "+ Create New Person" },
+                          ...viewerPeople.filter(
+                            (p) => (!selectedPerson || p.id !== selectedPerson.id) &&
+                              p.display_name.toLowerCase().includes(searchQuery.toLowerCase())
+                          ),
+                        ];
+                        if (filtered.length === 0) return null;
+                        return (
+                          <ul className="absolute z-50 top-full mt-1 w-full max-h-48 overflow-y-auto bg-slate-900 border border-slate-700 rounded-xl shadow-2xl shadow-black/60">
+                            {filtered.map((p, i) => (
+                              <li
+                                key={p.id}
+                                onMouseDown={(e) => {
+                                  e.preventDefault(); // prevent input blur
+                                  if (p.id === "__new__") {
+                                    setPending(null);
+                                    setSearchQuery("");
+                                    setDropdownOpen(false);
+                                    onCreateNewPerson();
+                                  } else {
+                                    setPending({ index: viewerIndex, personId: p.id, label: p.display_name });
+                                    setSearchQuery("");
+                                    setDropdownOpen(false);
+                                  }
+                                }}
+                                className={`px-3 py-2 text-xs cursor-pointer transition-colors ${
+                                  i === highlightIdx
+                                    ? "bg-violet-700/50 text-white"
+                                    : p.id === "__new__"
+                                    ? "text-violet-400 font-semibold hover:bg-slate-800"
+                                    : "text-slate-300 hover:bg-slate-800"
+                                }`}
+                              >
+                                {p.display_name}
+                              </li>
+                            ))}
+                          </ul>
+                        );
+                      })()}
+                    </div>
+
+                    {/* Confirm button */}
+                    {pendingPersonId && (
+                      <button
+                        disabled={isReassigning}
+                        onClick={() => {
+                          onReassign(currentViewerMedia.id, pendingPersonId);
+                          setPending(null);
+                        }}
+                        className="w-full py-2 text-xs font-semibold bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 disabled:opacity-70 disabled:cursor-not-allowed text-white rounded-xl transition-all active:scale-95 shadow-md shadow-violet-900/30 flex items-center justify-center gap-2"
+                      >
+                        {isReassigning ? (
+                          <>
+                            <svg className="animate-spin w-3.5 h-3.5" viewBox="0 0 24 24" fill="none">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                            </svg>
+                            Reassigning…
+                          </>
+                        ) : (
+                          <>✓ Confirm — {pendingLabel}</>
+                        )}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
+
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ── Person Avatar Sub-component ── */
+function PersonAvatar({ person }) {
+  const [imgError, setImgError] = useState(false);
+
+  return (
+    <div className="flex flex-col items-center gap-1.5 group cursor-default">
+      <div className="relative w-14 h-14 rounded-full overflow-hidden border-2 border-slate-700/60 group-hover:border-violet-500/60 transition-all shadow-lg shadow-black/40 ring-2 ring-transparent group-hover:ring-violet-500/20">
+        {!imgError ? (
+          <img
+            src={person.thumbnail_url}
+            alt={person.display_name}
+            className="w-full h-full object-cover"
+            onError={() => setImgError(true)}
+          />
+        ) : (
+          <div className="w-full h-full bg-slate-800 flex items-center justify-center">
+            <span className="text-xl">👤</span>
+          </div>
+        )}
+      </div>
+      <span className="text-[10px] font-semibold text-slate-300 group-hover:text-violet-300 transition-colors text-center max-w-[60px] truncate leading-tight">
+        {person.display_name}
+      </span>
     </div>
   );
 }

@@ -45,6 +45,8 @@ export default function App() {
   const [mergeOpen, setMergeOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [isReassigning, setIsReassigning] = useState(false);
+  // Incrementing this causes MediaViewer to re-fetch people for the current media
+  const [viewerPeopleRefreshKey, setViewerPeopleRefreshKey] = useState(0);
 
   // Refs
   const containerRef = useRef(null);
@@ -81,6 +83,7 @@ export default function App() {
       const data = await api.reassignMedia(mediaId, targetPersonId);
       if (data.status === "success") {
         showToast("Reassigned successfully!");
+        setViewerPeopleRefreshKey((k) => k + 1);
         if (viewerOpen) {
           galleryState.setMedia((prevMedia) => {
             const nextMedia = prevMedia.filter((item) => item.id !== mediaId);
@@ -216,6 +219,7 @@ export default function App() {
           onReassign={semanticViewerMedia ? () => {} : handleReassignMedia}
           onCreateNewPerson={() => setCreateOpen(true)}
           isReassigning={isReassigning}
+          peopleRefreshKey={viewerPeopleRefreshKey}
         />
       )}
     </div>

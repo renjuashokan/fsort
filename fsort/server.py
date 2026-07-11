@@ -255,6 +255,31 @@ def api_get_person_media(
     return {"total": total, "skip": skip, "limit": limit, "items": items}
 
 
+@app.get("/api/media/{media_id}/people")
+def api_get_media_people(media_id: int) -> list[dict[str, Any]]:
+    """Return distinct persons detected in the given media item."""
+    service = get_service()
+    with service.store._get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT DISTINCT f.person_id, p.display_name
+            FROM faces f
+            JOIN persons p ON p.id = f.person_id
+            WHERE f.media_id = ? AND f.person_id IS NOT NULL
+            ORDER BY p.display_name ASC
+            """,
+            (media_id,),
+        ).fetchall()
+    return [
+        {
+            "id": row["person_id"],
+            "display_name": row["display_name"],
+            "thumbnail_url": f"/api/person/{row['person_id']}/thumbnail",
+        }
+        for row in rows
+    ]
+
+
 @app.get("/api/media/{media_id}")
 def api_get_media_file(media_id: int):
     service = get_service()
