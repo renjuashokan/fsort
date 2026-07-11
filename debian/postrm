@@ -7,6 +7,8 @@ case "$1" in
         systemctl stop fsort.service || true
         systemctl disable fsort.service || true
         systemctl daemon-reload
+        # Remove the symlink
+        rm -f /usr/local/bin/face-sort
         # Remove the application, cache, and log folders
         rm -rf /opt/fsort
         rm -rf /var/lib/fsort
@@ -18,6 +20,8 @@ case "$1" in
         systemctl stop fsort.service || true
         systemctl disable fsort.service || true
         systemctl daemon-reload
+        # Remove the symlink
+        rm -f /usr/local/bin/face-sort
     ;;
 
     *)

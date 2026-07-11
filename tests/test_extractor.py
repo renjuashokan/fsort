@@ -8,20 +8,32 @@ from fsort.config import Config
 from fsort.extractor import FaceExtractor
 
 
-def test_gpu_mode_rejects_missing_cuda_provider(
+def test_gpu_mode_falls_back_when_cuda_provider_is_missing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     runtime = ModuleType("onnxruntime")
     runtime.get_available_providers = lambda: ["CPUExecutionProvider"]  # type: ignore[attr-defined]
     insightface = ModuleType("insightface")
     insightface_app = ModuleType("insightface.app")
-    insightface_app.FaceAnalysis = object  # type: ignore[attr-defined]
+    captured: dict[str, object] = {}
+
+    class FakeFaceAnalysis:
+        def __init__(self, **kwargs: object):
+            captured.update(kwargs)
+
+        def prepare(self, **kwargs: object) -> None:
+            captured.update(kwargs)
+
+    insightface_app.FaceAnalysis = FakeFaceAnalysis  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "onnxruntime", runtime)
     monkeypatch.setitem(sys.modules, "insightface", insightface)
     monkeypatch.setitem(sys.modules, "insightface.app", insightface_app)
 
-    with pytest.raises(RuntimeError, match="CUDAExecutionProvider"):
+    with pytest.warns(RuntimeWarning, match="Falling back to CPU"):
         FaceExtractor(Config(gpu=True))._model()
+
+    assert captured["providers"] == ["CPUExecutionProvider"]
+    assert captured["ctx_id"] == -1
 
 
 def test_gpu_mode_requests_cuda_first(monkeypatch: pytest.MonkeyPatch) -> None:

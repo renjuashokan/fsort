@@ -69,13 +69,21 @@ def _decode_pil(source: bytes | Path) -> Any:
     from PIL import Image as PILImage
     from io import BytesIO
     if isinstance(source, Path):
-        img = PILImage.open(source)
+        # Open with a context manager so the file descriptor is released
+        # immediately after load() pulls all pixel data into memory.
+        # Without this, the handle stays open until GC runs and you hit
+        # EMFILE ("Too many open files") over large directories.
+        with PILImage.open(source) as img:
+            img.load()
+            if img.mode != "RGB":
+                img = img.convert("RGB")
+            return img.copy()  # detach from the now-closed file
     else:
         img = PILImage.open(BytesIO(source))
-    img.load()
-    if img.mode != "RGB":
-        img = img.convert("RGB")
-    return img
+        img.load()
+        if img.mode != "RGB":
+            img = img.convert("RGB")
+        return img
 
 
 def _normalize(img: NDArray[np.float32], mean: NDArray[np.float32], std: NDArray[np.float32]) -> NDArray[np.float32]:
@@ -94,10 +102,15 @@ _HF_REPO_PREFIX = "immich-app"
 
 
 def _model_dir(cache_root: Path, model_name: str) -> Path:
-    """Return the local directory where a model is cached."""
-    # Immich stores models like:  cache/<task>/<model_name>/
-    # We'll use:                  cache/clip/<model_name>/
-    return cache_root / "clip" / model_name
+    """Return the local directory where a model is cached.
+
+    The model is stored in a fixed global location (~/.cache/fsort/clip/)
+    so it is downloaded only once, regardless of which --cache directory
+    is passed on the command line.
+    """
+    # Ignore cache_root for model storage — use ~/.fsort/clip/ so all
+    # fsort user data lives in one place (alongside config.yaml).
+    return Path.home() / ".fsort" / "clip" / model_name
 
 
 def _clean_model_name(name: str) -> str:

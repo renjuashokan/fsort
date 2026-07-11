@@ -19,6 +19,9 @@ case "$1" in
         mkdir -p /var/lib/fsort/sorted
         mkdir -p /var/log/fsort
 
+        # Expose face-sort on the system PATH
+        ln -sf /opt/fsort/.venv/bin/face-sort /usr/local/bin/face-sort
+
         # Reload systemd to recognize the new service
         systemctl daemon-reload
 

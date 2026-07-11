@@ -59,6 +59,12 @@ export const api = {
     return res.json();
   },
 
+  getMediaPeople: async (mediaId) => {
+    const res = await fetch(`/api/media/${mediaId}/people`);
+    if (!res.ok) return [];
+    return res.json();
+  },
+
   createPerson: async (name) => {
     const res = await fetch("/api/person/create", {
       method: "POST",
