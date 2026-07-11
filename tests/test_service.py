@@ -15,8 +15,7 @@ class FakeExtractor:
     def extract(self, path: Path) -> list[FaceRecord]:
         self.calls.append(path.name)
         return [
-            FaceRecord(embedding=embedding)
-            for embedding in self.embeddings[path.name]
+            FaceRecord(embedding=embedding) for embedding in self.embeddings[path.name]
         ]
 
 
@@ -83,7 +82,9 @@ def test_service_extract_and_organize(
 
 def test_config_server_port_and_host(tmp_path: Path) -> None:
     config_file = tmp_path / "config.yaml"
-    config_file.write_text("server_port: 12345\nserver_host: 0.0.0.0\n", encoding="utf-8")
+    config_file.write_text(
+        "server_port: 12345\nserver_host: 0.0.0.0\n", encoding="utf-8"
+    )
 
     config = Config.load(config_file)
     assert config.server_port == 12345
@@ -95,10 +96,12 @@ def test_config_home_fallback(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
 
     # Mock exists() to return False for config.yaml so fallback is triggered
     original_exists = Path.exists
+
     def mock_exists(self):
         if self == Path("config.yaml"):
             return False
         return original_exists(self)
+
     monkeypatch.setattr(Path, "exists", mock_exists)
 
     config = Config.load(Path("config.yaml"))
@@ -112,6 +115,7 @@ def test_config_home_fallback(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
         if self == Path("config.yaml"):
             return False
         return original_exists(self)
+
     monkeypatch.setattr(Path, "exists", mock_exists_2)
 
     home_config.write_text("server_port: 8888\ngpu: false\n", encoding="utf-8")

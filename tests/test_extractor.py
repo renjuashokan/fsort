@@ -1,6 +1,7 @@
+import ctypes
 import sys
 from pathlib import Path
-from types import ModuleType, SimpleNamespace
+from types import ModuleType
 
 import pytest
 
@@ -81,10 +82,13 @@ def test_gpu_mode_retains_nvidia_dll_directories(
 
     monkeypatch.setattr(sys, "platform", "win32")
     monkeypatch.setattr(sys, "path", [str(tmp_path)])
+
+    def add_dll_directory(path: str) -> object:
+        handles.append(path)
+        return object()
+
     monkeypatch.setattr(
-        "fsort.extractor.os.add_dll_directory",
-        lambda path: handles.append(path) or object(),
-        raising=False,
+        "fsort.extractor.os.add_dll_directory", add_dll_directory, raising=False
     )
     extractor = FaceExtractor(Config(gpu=True))
 
@@ -105,10 +109,12 @@ def test_gpu_mode_preloads_cudnn_sublibraries(
 
     monkeypatch.setattr(sys, "platform", "win32")
     monkeypatch.setattr(sys, "path", [str(tmp_path)])
-    monkeypatch.setattr(
-        "fsort.extractor.ctypes.CDLL",
-        lambda path: loaded.append(path) or object(),
-    )
+
+    def load_library(path: str) -> object:
+        loaded.append(path)
+        return object()
+
+    monkeypatch.setattr(ctypes, "CDLL", load_library)
     extractor = FaceExtractor(Config(gpu=True))
 
     extractor._preload_cudnn_sublibraries()

@@ -14,9 +14,7 @@ def build_index(
     input_root: Path,
     output_root: Path,
 ) -> dict[str, dict[str, object]]:
-    names = {
-        person.id: validate_display_name(person.display_name) for person in people
-    }
+    names = {person.id: validate_display_name(person.display_name) for person in people}
     index: dict[str, dict[str, object]] = {}
     for source_value, record in records.items():
         source = Path(source_value)

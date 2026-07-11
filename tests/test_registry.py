@@ -45,20 +45,22 @@ def test_cluster_match_merge_split_and_persist(tmp_path: Path) -> None:
     assert assign_to_existing([face], people, threshold=0.1) == 1
     assert face.person_id == first.id
 
-    target, source = people
+    target, source = people[0], people[1]
     merge_people(people, records, target.id, source.id)
     assert len(people) == 1
     assert people[0].embedding_count == 4
 
     released = split_person(people, records, target.id)
     assert released == 4
-    assert people == []
+    assert not people
 
     store = RegistryStore(tmp_path / "cache")
     store.save(people, records, {"a.jpg": {"persons": []}})
     loaded = store.load_embeddings()
     assert set(loaded) == set(records)
-    assert all(face.person_id is None for item in loaded.values() for face in item.faces)
+    assert all(
+        face.person_id is None for item in loaded.values() for face in item.faces
+    )
 
 
 def test_weighted_centroid_is_normalized() -> None:
@@ -99,7 +101,9 @@ def test_multi_prototype_matching_and_kmeans() -> None:
             hash="h1",
             mtime_ns=1,
             size=1,
-            faces=[FaceRecord(embedding=emb, person_id=person.id) for emb in embeddings]
+            faces=[
+                FaceRecord(embedding=emb, person_id=person.id) for emb in embeddings
+            ],
         )
     }
 
@@ -114,4 +118,3 @@ def test_multi_prototype_matching_and_kmeans() -> None:
     new_face = FaceRecord(embedding=[0.93, 0.09])
     assert assign_to_existing([new_face], people, threshold=0.1) == 1
     assert new_face.person_id == person.id
-

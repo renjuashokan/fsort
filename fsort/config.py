@@ -49,24 +49,7 @@ class Config:
             else:
                 try:
                     home_config.parent.mkdir(parents=True, exist_ok=True)
-                    default_data = {
-                        "video_interval": 2.0,
-                        "video_single_frame": False,
-                        "match_threshold": 0.42,
-                        "dbscan_eps": 0.45,
-                        "min_samples": 2,
-                        "min_face_size": 80,
-                        "copy_mode": True,
-                        "cache_enabled": True,
-                        "checkpoint_interval": 250,
-                        "gpu": False,
-                        "model_name": "buffalo_l",
-                        "server_port": 9876,
-                        "server_host": "127.0.0.1",
-                        "hdd_root": "",
-                        "clip_enabled": cls.clip_enabled,
-                        "clip_model": cls.clip_model,
-                    }
+                    default_data = asdict(cls())
                     with home_config.open("w", encoding="utf-8") as handle:
                         yaml.safe_dump(default_data, handle, default_flow_style=False)
                     path = home_config
@@ -103,4 +86,6 @@ class Config:
         }
         invalid = [name for name, value in positive.items() if value <= 0]
         if invalid:
-            raise ValueError(f"Configuration values must be positive: {', '.join(invalid)}")
+            raise ValueError(
+                f"Configuration values must be positive: {', '.join(invalid)}"
+            )
