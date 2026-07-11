@@ -16,8 +16,7 @@ class FakeExtractor:
     def extract(self, path: Path) -> list[FaceRecord]:
         self.calls.append(path.name)
         return [
-            FaceRecord(embedding=embedding)
-            for embedding in self.embeddings[path.name]
+            FaceRecord(embedding=embedding) for embedding in self.embeddings[path.name]
         ]
 
 

@@ -10,6 +10,7 @@ Supported model names (from Immich's constants):
   ViT-L-14__openai       (890 MB)
   XLM-Roberta-Large-ViT-B-32  (multilingual)
 """
+
 from __future__ import annotations
 
 import json
@@ -19,7 +20,6 @@ from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
-
 
 # ---------------------------------------------------------------------------
 # Text helpers (verbatim from Immich transforms.py / textual.py)
@@ -43,12 +43,20 @@ def _serialize(arr: NDArray[np.float32]) -> list[float]:
 # Image preprocessing helpers (verbatim from Immich transforms.py / visual.py)
 # ---------------------------------------------------------------------------
 
+
 def _resize_pil(img: Any, size: int) -> Any:
     from PIL import Image as PILImage
+
     if img.width < img.height:
-        return img.resize((size, int((img.height / img.width) * size)), resample=PILImage.Resampling.BICUBIC)
+        return img.resize(
+            (size, int((img.height / img.width) * size)),
+            resample=PILImage.Resampling.BICUBIC,
+        )
     else:
-        return img.resize((int((img.width / img.height) * size), size), resample=PILImage.Resampling.BICUBIC)
+        return img.resize(
+            (int((img.width / img.height) * size), size),
+            resample=PILImage.Resampling.BICUBIC,
+        )
 
 
 def _crop_pil(img: Any, size: int) -> Any:
@@ -61,6 +69,7 @@ def _crop_pil(img: Any, size: int) -> Any:
 
 def _get_pil_resampling(resample: str) -> Any:
     from PIL import Image as PILImage
+
     methods = {r.name.lower(): r for r in PILImage.Resampling}
     return methods[resample.lower()]
 
@@ -68,6 +77,7 @@ def _get_pil_resampling(resample: str) -> Any:
 def _decode_pil(source: bytes | Path) -> Any:
     from PIL import Image as PILImage
     from io import BytesIO
+
     if isinstance(source, Path):
         # Open with a context manager so the file descriptor is released
         # immediately after load() pulls all pixel data into memory.
@@ -86,7 +96,9 @@ def _decode_pil(source: bytes | Path) -> Any:
         return img
 
 
-def _normalize(img: NDArray[np.float32], mean: NDArray[np.float32], std: NDArray[np.float32]) -> NDArray[np.float32]:
+def _normalize(
+    img: NDArray[np.float32], mean: NDArray[np.float32], std: NDArray[np.float32]
+) -> NDArray[np.float32]:
     return (img - mean) / std
 
 
@@ -131,7 +143,9 @@ def _download_model(model_name: str, cache_root: Path) -> Path:
 
     clean = _clean_model_name(model_name)
     repo_id = f"{_HF_REPO_PREFIX}/{clean}"
-    print(f"[clip] Downloading CLIP model '{model_name}' from HuggingFace ({repo_id})...")
+    print(
+        f"[clip] Downloading CLIP model '{model_name}' from HuggingFace ({repo_id})..."
+    )
     print("[clip] This only happens once. Please wait...")
     snapshot_download(
         repo_id=repo_id,
@@ -145,20 +159,27 @@ def _download_model(model_name: str, cache_root: Path) -> Path:
 # CLIP Visual Encoder
 # ---------------------------------------------------------------------------
 
+
 class ClipVisualEncoder:
     """Encodes images into CLIP embedding vectors.
 
     Mirrors Immich's OpenClipVisualEncoder.
     """
 
-    def __init__(self, model_name: str, cache_root: Path, providers: list[str] | None = None):
+    def __init__(
+        self, model_name: str, cache_root: Path, providers: list[str] | None = None
+    ):
         self.model_name = model_name
         self.model_dir = _download_model(model_name, cache_root)
         self._providers = providers or ["CPUExecutionProvider"]
         self._session = None
         self._size: int = 224
-        self._mean: NDArray[np.float32] = np.array([0.48145466, 0.4578275, 0.40821073], dtype=np.float32)
-        self._std: NDArray[np.float32] = np.array([0.26862954, 0.26130258, 0.27577711], dtype=np.float32)
+        self._mean: NDArray[np.float32] = np.array(
+            [0.48145466, 0.4578275, 0.40821073], dtype=np.float32
+        )
+        self._std: NDArray[np.float32] = np.array(
+            [0.26862954, 0.26130258, 0.27577711], dtype=np.float32
+        )
 
     def _load(self) -> None:
         import onnxruntime as ort
@@ -167,7 +188,9 @@ class ClipVisualEncoder:
         if not visual_onnx.is_file():
             raise FileNotFoundError(f"CLIP visual model not found: {visual_onnx}")
 
-        self._session = ort.InferenceSession(str(visual_onnx), providers=self._providers)
+        self._session = ort.InferenceSession(
+            str(visual_onnx), providers=self._providers
+        )
 
         # Load preprocessing config
         preprocess_cfg_path = self.model_dir / "visual" / "preprocess_cfg.json"
@@ -214,13 +237,16 @@ class ClipVisualEncoder:
 # CLIP Textual Encoder
 # ---------------------------------------------------------------------------
 
+
 class ClipTextualEncoder:
     """Encodes text queries into CLIP embedding vectors.
 
     Mirrors Immich's OpenClipTextualEncoder.
     """
 
-    def __init__(self, model_name: str, cache_root: Path, providers: list[str] | None = None):
+    def __init__(
+        self, model_name: str, cache_root: Path, providers: list[str] | None = None
+    ):
         self.model_name = model_name
         self.model_dir = _download_model(model_name, cache_root)
         self._providers = providers or ["CPUExecutionProvider"]
@@ -236,7 +262,9 @@ class ClipTextualEncoder:
         if not textual_onnx.is_file():
             raise FileNotFoundError(f"CLIP textual model not found: {textual_onnx}")
 
-        self._session = ort.InferenceSession(str(textual_onnx), providers=self._providers)
+        self._session = ort.InferenceSession(
+            str(textual_onnx), providers=self._providers
+        )
 
         # Load tokenizer
         tokenizer_path = self.model_dir / "textual" / "tokenizer.json"
@@ -264,7 +292,9 @@ class ClipTextualEncoder:
         if pad_id is None:
             # Fallback: use 0
             pad_id = 0
-        self._tokenizer.enable_padding(length=context_length, pad_token=pad_token, pad_id=pad_id)
+        self._tokenizer.enable_padding(
+            length=context_length, pad_token=pad_token, pad_id=pad_id
+        )
         self._tokenizer.enable_truncation(max_length=context_length)
 
     @property
@@ -289,13 +319,16 @@ class ClipTextualEncoder:
         inputs_info = self.session.get_inputs()
         input_name = inputs_info[0].name if inputs_info else "text"
 
-        result: NDArray[np.float32] = self.session.run(None, {input_name: token_ids})[0][0]
+        result: NDArray[np.float32] = self.session.run(None, {input_name: token_ids})[
+            0
+        ][0]
         return result
 
 
 # ---------------------------------------------------------------------------
 # Convenience: cosine similarity
 # ---------------------------------------------------------------------------
+
 
 def cosine_similarity(a: NDArray[np.float32], b: NDArray[np.float32]) -> float:
     """Return the cosine similarity between two 1-D vectors."""

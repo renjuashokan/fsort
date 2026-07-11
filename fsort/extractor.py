@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import sys
-import ctypes
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -86,11 +85,17 @@ class FaceExtractor:
             # If we were using GPU, tear it down and retry on CPU.
             if self._app is not None and self.config.gpu:
                 msg = str(exc)
-                if any(kw in msg for kw in (
-                    "no kernel image", "CUDNN_BACKEND_API_FAILED",
-                    "cudaErrorNoKernelImageForDevice", "CUDNN_FE failure",
-                )):
+                if any(
+                    kw in msg
+                    for kw in (
+                        "no kernel image",
+                        "CUDNN_BACKEND_API_FAILED",
+                        "cudaErrorNoKernelImageForDevice",
+                        "CUDNN_FE failure",
+                    )
+                ):
                     import warnings
+
                     warnings.warn(
                         f"cuDNN kernel error — GPU (SM {self._gpu_sm()}) is not "
                         "supported by the installed cuDNN version. "
@@ -99,8 +104,9 @@ class FaceExtractor:
                         RuntimeWarning,
                         stacklevel=2,
                     )
-                    self._app = None          # force re-init on next call
+                    self._app = None  # force re-init on next call
                     import dataclasses
+
                     self.config = dataclasses.replace(self.config, gpu=False)
                     return self._detect_faces(frame)  # retry with CPU
             raise
@@ -109,9 +115,11 @@ class FaceExtractor:
     def _gpu_sm() -> str:
         try:
             import subprocess
+
             out = subprocess.check_output(
                 ["nvidia-smi", "--query-gpu=compute_cap", "--format=csv,noheader"],
-                text=True, timeout=3,
+                text=True,
+                timeout=3,
             )
             return out.strip().split("\n")[0].strip()
         except Exception:
@@ -134,7 +142,9 @@ class FaceExtractor:
                     bbox_y=int(box[1]),
                     bbox_w=int(width),
                     bbox_h=int(height),
-                    confidence=float(face.det_score) if hasattr(face, "det_score") else None,
+                    confidence=(
+                        float(face.det_score) if hasattr(face, "det_score") else None
+                    ),
                 )
             )
         return records
@@ -162,6 +172,7 @@ class FaceExtractor:
             if self.config.gpu:
                 if "CUDAExecutionProvider" not in available:
                     import warnings
+
                     warnings.warn(
                         "GPU mode requested but CUDAExecutionProvider is not available "
                         f"(providers: {', '.join(available)}). "
@@ -212,6 +223,7 @@ class FaceExtractor:
         if sys.platform == "win32":
             return
         import ctypes
+
         for entry in map(Path, sys.path):
             nvidia_root = entry / "nvidia"
             if not nvidia_root.is_dir():
@@ -232,6 +244,7 @@ class FaceExtractor:
         if sys.platform != "win32":
             return
         import ctypes
+
         load_order = (
             "cudnn64_9.dll",
             "cudnn_ops64_9.dll",
@@ -261,6 +274,8 @@ def iter_media(root: Path, excluded: list[Path] | None = None) -> Iterator[Path]
         if not path.is_file() or path.suffix.lower() not in MEDIA_EXTENSIONS:
             continue
         resolved = path.resolve()
-        if any(resolved == item or item in resolved.parents for item in excluded_resolved):
+        if any(
+            resolved == item or item in resolved.parents for item in excluded_resolved
+        ):
             continue
         yield resolved

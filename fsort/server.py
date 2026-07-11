@@ -97,9 +97,9 @@ def run_extract_task(input_path: Path, service: FsortService) -> None:
             input_path, show_progress=False, progress_callback=on_progress
         )
         progress_state["status"] = "completed"
-        progress_state[
-            "message"
-        ] = f"Extraction completed. Scanned: {results['scanned']}, Processed: {results['processed']}, Skipped: {results['skipped']}, Failed: {results['failed']}, Deleted: {results['deleted']}."
+        progress_state["message"] = (
+            f"Extraction completed. Scanned: {results['scanned']}, Processed: {results['processed']}, Skipped: {results['skipped']}, Failed: {results['failed']}, Deleted: {results['deleted']}."
+        )
     except Exception as e:
         logger.exception("Extraction background task failed")
         progress_state["status"] = "failed"
@@ -107,6 +107,7 @@ def run_extract_task(input_path: Path, service: FsortService) -> None:
 
 
 # --- REST API Endpoints ---
+
 
 @app.get("/people")
 def get_people() -> list[dict[str, Any]]:
@@ -204,6 +205,7 @@ def get_progress() -> dict[str, Any]:
 
 # --- New Paginated, Search, & Thumbnail API Endpoints ---
 
+
 @app.get("/api/people")
 def api_get_people(
     skip: int = 0,
@@ -231,7 +233,11 @@ def api_get_person(person_id: str) -> dict[str, Any]:
     if person_id == "_unknown":
         return {"id": "_unknown", "display_name": "Unknown", "embedding_count": 0}
     if person_id == "_multiple":
-        return {"id": "_multiple", "display_name": "Multiple Faces", "embedding_count": 0}
+        return {
+            "id": "_multiple",
+            "display_name": "Multiple Faces",
+            "embedding_count": 0,
+        }
 
     people = service.list_people()
     for p in people:
@@ -284,7 +290,9 @@ def api_get_media_people(media_id: int) -> list[dict[str, Any]]:
 def api_get_media_file(media_id: int):
     service = get_service()
     with service.store._get_connection() as conn:
-        row = conn.execute("SELECT path FROM media WHERE id = ?", (media_id,)).fetchone()
+        row = conn.execute(
+            "SELECT path FROM media WHERE id = ?", (media_id,)
+        ).fetchone()
     if not row or not Path(row["path"]).is_file():
         raise HTTPException(status_code=404, detail="Media file not found")
     return FileResponse(row["path"])
@@ -294,7 +302,9 @@ def api_get_media_file(media_id: int):
 def api_get_media_thumbnail(media_id: int):
     service = get_service()
     with service.store._get_connection() as conn:
-        row = conn.execute("SELECT path, media_type FROM media WHERE id = ?", (media_id,)).fetchone()
+        row = conn.execute(
+            "SELECT path, media_type FROM media WHERE id = ?", (media_id,)
+        ).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Media not found")
 
@@ -311,6 +321,7 @@ def api_get_media_thumbnail(media_id: int):
         return FileResponse(thumb_path)
 
     import cv2
+
     try:
         if media_type == "video":
             cap = cv2.VideoCapture(str(path))
@@ -339,7 +350,9 @@ def api_get_media_thumbnail(media_id: int):
         cv2.imwrite(str(thumb_path), thumb)
         return FileResponse(thumb_path)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to generate thumbnail: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to generate thumbnail: {e}"
+        )
 
 
 @app.get("/api/person/{person_id}/thumbnail")
@@ -369,7 +382,7 @@ def api_get_person_thumbnail(person_id: str):
             WHERE f.person_id = ?
             ORDER BY f.confidence DESC, f.id ASC LIMIT 1
             """,
-            (person_id,)
+            (person_id,),
         ).fetchone()
 
     if not row:
@@ -380,7 +393,6 @@ def api_get_person_thumbnail(person_id: str):
         return Response(content=svg, media_type="image/svg+xml")
 
     path = Path(row["path"])
-    media_type = row["media_type"]
     if not path.is_file():
         svg = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
             <rect width="100%" height="100%" fill="#4B5563"/>
@@ -389,6 +401,7 @@ def api_get_person_thumbnail(person_id: str):
         return Response(content=svg, media_type="image/svg+xml")
 
     import cv2
+
     try:
         if row["frame"] is not None:
             cap = cv2.VideoCapture(str(path))
@@ -463,7 +476,12 @@ def api_post_reassign(req: ReassignRequest) -> dict[str, str]:
         service.reassign_media(req.media_id, req.person_id, in_root)
         return {"status": "success", "message": "Media reassigned successfully."}
     except (ValueError, RuntimeError) as e:
-        logger.error("reassign failed: media_id=%s person_id=%r error=%s", req.media_id, req.person_id, e)
+        logger.error(
+            "reassign failed: media_id=%s person_id=%r error=%s",
+            req.media_id,
+            req.person_id,
+            e,
+        )
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -549,8 +567,7 @@ def spa_fallback(fallback_path: str):
         return HTMLResponse(content=index_file.read_text(encoding="utf-8"))
 
     # Fallback message if UI is not yet built
-    return HTMLResponse(
-        content="""
+    return HTMLResponse(content="""
         <html>
         <head><title>FaceSort</title></head>
         <body style="font-family: system-ui, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #111827; color: #F3F4F6;">
@@ -560,5 +577,4 @@ def spa_fallback(fallback_path: str):
             </div>
         </body>
         </html>
-        """
-    )
+        """)

@@ -14,11 +14,15 @@ def validate_display_name(value: str) -> str:
     if not value:
         raise ValueError("Display name cannot be empty")
     if value in {".", ".."} or any(character in value for character in '<>:"/\\|?*'):
-        raise ValueError("Display name contains characters that are unsafe in folder names")
+        raise ValueError(
+            "Display name contains characters that are unsafe in folder names"
+        )
     if value.endswith((" ", ".")):
         raise ValueError("Display name cannot end with a space or period")
     reserved = {"CON", "PRN", "AUX", "NUL", "Unknown", "MultipleFaces"}
-    reserved.update(f"{prefix}{number}" for prefix in ("COM", "LPT") for number in range(1, 10))
+    reserved.update(
+        f"{prefix}{number}" for prefix in ("COM", "LPT") for number in range(1, 10)
+    )
     if value.split(".", 1)[0].upper() in {name.upper() for name in reserved}:
         raise ValueError("Display name is reserved for system or organizer use")
     return value
@@ -29,7 +33,9 @@ def resolve_person(people: list[Person], value: str) -> Person:
     if by_id:
         return by_id[0]
     by_name = [
-        person for person in people if person.display_name.casefold() == value.casefold()
+        person
+        for person in people
+        if person.display_name.casefold() == value.casefold()
     ]
     if len(by_name) == 1:
         return by_name[0]
@@ -51,7 +57,11 @@ def assign_to_existing(
 ) -> int:
     prototypes_list = []
     for person in people:
-        vectors = person.prototypes if person.prototypes else ([person.centroid] if person.centroid else [])
+        vectors = (
+            person.prototypes
+            if person.prototypes
+            else ([person.centroid] if person.centroid else [])
+        )
         for vec in vectors:
             prototypes_list.append((person.id, normalized(vec)))
 
@@ -97,7 +107,11 @@ def cluster_unknowns(
     created = 0
     clusters: dict[str, list[dict[str, int | str]]] = {}
     for label in sorted(set(labels) - {-1}):
-        members = [item for item, assigned_label in zip(unknown, labels) if assigned_label == label]
+        members = [
+            item
+            for item, assigned_label in zip(unknown, labels)
+            if assigned_label == label
+        ]
         person = Person.create(next_person_name(people))
         people.append(person)
         created += 1
@@ -108,9 +122,7 @@ def cluster_unknowns(
     return created, clusters
 
 
-def recompute_centroids(
-    people: list[Person], records: dict[str, MediaRecord]
-) -> None:
+def recompute_centroids(people: list[Person], records: dict[str, MediaRecord]) -> None:
     grouped: dict[str, list[np.ndarray]] = defaultdict(list)
     for record in records.values():
         for face in record.faces:
@@ -132,6 +144,7 @@ def recompute_centroids(
                 person.prototypes = [emb.tolist() for emb in embeddings]
             else:
                 from sklearn.cluster import KMeans
+
                 kmeans = KMeans(n_clusters=30, n_init="auto", random_state=42)
                 kmeans.fit(embeddings)
                 person.prototypes = kmeans.cluster_centers_.tolist()

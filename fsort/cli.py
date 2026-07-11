@@ -32,7 +32,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     # Priority 2: Extract subcommand
-    extract_parser = subparsers.add_parser("extract", help="scan and extract face embeddings")
+    extract_parser = subparsers.add_parser(
+        "extract", help="scan and extract face embeddings"
+    )
     extract_parser.add_argument("input", type=Path)
     _add_paths(extract_parser, include_input=False)
     extract_parser.add_argument("--config", type=Path, default=Path("config.yaml"))
@@ -40,12 +42,16 @@ def build_parser() -> argparse.ArgumentParser:
     extract_parser.add_argument("--no-progress", action="store_true")
 
     # Priority 2: Organize subcommand
-    organize_parser = subparsers.add_parser("organize", help="cluster faces and synchronize output folders")
+    organize_parser = subparsers.add_parser(
+        "organize", help="cluster faces and synchronize output folders"
+    )
     _add_paths(organize_parser)
     organize_parser.add_argument("--config", type=Path, default=Path("config.yaml"))
 
     # Priority 3: Serve subcommand
-    serve_parser = subparsers.add_parser("serve", help="start the embedded HTTP API server")
+    serve_parser = subparsers.add_parser(
+        "serve", help="start the embedded HTTP API server"
+    )
     serve_parser.add_argument("--host", help="host address to bind")
     serve_parser.add_argument("--port", type=int, help="port to listen on")
     _add_paths(serve_parser, include_input=False)
@@ -115,7 +121,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="new HDD mount point on this machine (e.g. '/mnt/sda1')",
     )
     remap.add_argument("--cache", type=Path, default=Path("cache"))
-    remap.add_argument("--dry-run", action="store_true", help="show what would change without modifying the DB")
+    remap.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="show what would change without modifying the DB",
+    )
     return parser
 
 
@@ -131,6 +141,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "version":
             from importlib.metadata import version as pkg_version
+
             print(pkg_version("fsort"))
             return 0
         if args.command == "serve":
@@ -140,7 +151,10 @@ def main(argv: list[str] | None = None) -> int:
 
         config_path = getattr(args, "config", Path("config.yaml"))
         config = Config.load(config_path)
-        if hasattr(args, "checkpoint_interval") and args.checkpoint_interval is not None:
+        if (
+            hasattr(args, "checkpoint_interval")
+            and args.checkpoint_interval is not None
+        ):
             config.checkpoint_interval = args.checkpoint_interval
             config.validate()
 
@@ -197,7 +211,9 @@ def main(argv: list[str] | None = None) -> int:
                 print("No registered people.")
                 return 0
             for person in sorted(people, key=lambda item: item.display_name.casefold()):
-                print(f"{person.id}  {person.display_name}  ({person.embedding_count} embeddings)")
+                print(
+                    f"{person.id}  {person.display_name}  ({person.embedding_count} embeddings)"
+                )
             return 0
         elif args.command == "stats":
             stats = service.stats()
@@ -254,6 +270,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         elif args.command == "remap-paths":
             return _remap_paths(args)
+        return 2
     except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
@@ -303,8 +320,11 @@ def _remap_paths(args: argparse.Namespace) -> int:
         if not value:
             return value
         normalized = value.replace("\\", "/")
-        if normalized.lower().startswith(from_root.lower() + "/") or normalized.lower() == from_root.lower():
-            remainder = normalized[len(from_root):].lstrip("/")
+        if (
+            normalized.lower().startswith(from_root.lower() + "/")
+            or normalized.lower() == from_root.lower()
+        ):
+            remainder = normalized[len(from_root) :].lstrip("/")
             return to_root + "/" + remainder
         return value  # not under from_root, leave unchanged
 

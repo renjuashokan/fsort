@@ -22,7 +22,9 @@ def deserialize_embedding(blob: bytes | None) -> list[float]:
     return np.frombuffer(blob, dtype=np.float32).tolist()
 
 
-def serialize_prototypes(prototypes: list[list[float]] | np.ndarray | None) -> bytes | None:
+def serialize_prototypes(
+    prototypes: list[list[float]] | np.ndarray | None,
+) -> bytes | None:
     if prototypes is None or len(prototypes) == 0:
         return None
     return np.asarray(prototypes, dtype=np.float32).tobytes()
@@ -58,12 +60,14 @@ class RegistryStore:
         """
         if not self._hdd_root:
             return abs_path
-        from pathlib import PurePosixPath, PureWindowsPath
         # Normalize source path to forward slashes for comparison
         normalized = abs_path.replace("\\", "/")
         root = self._hdd_root  # already normalized in __init__
-        if normalized.lower().startswith(root.lower() + "/") or normalized.lower() == root.lower():
-            rel = normalized[len(root):].lstrip("/")
+        if (
+            normalized.lower().startswith(root.lower() + "/")
+            or normalized.lower() == root.lower()
+        ):
+            rel = normalized[len(root) :].lstrip("/")
             return rel  # already POSIX (forward slashes)
         # Can't relativize (different drive/root) — store as-is
         return abs_path
@@ -77,7 +81,9 @@ class RegistryStore:
         if not stored_path:
             return stored_path
         # Already absolute: Linux (/...) or Windows (X:\...) — backward compat
-        if stored_path.startswith("/") or (len(stored_path) > 1 and stored_path[1] == ":"):
+        if stored_path.startswith("/") or (
+            len(stored_path) > 1 and stored_path[1] == ":"
+        ):
             return stored_path
         # Relative path — prepend hdd_root
         if self._hdd_root:
@@ -154,11 +160,18 @@ class RegistryStore:
                 )
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_media_path ON media(path);")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_faces_media_id ON faces(media_id);")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_faces_person_id ON faces(person_id);")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_faces_media_id ON faces(media_id);"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_faces_person_id ON faces(person_id);"
+            )
 
             # Migrate existing media table: add clip_embedding column if missing
-            media_cols = [row["name"] for row in conn.execute("PRAGMA table_info(media)").fetchall()]
+            media_cols = [
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(media)").fetchall()
+            ]
             if "clip_embedding" not in media_cols:
                 conn.execute("ALTER TABLE media ADD COLUMN clip_embedding BLOB")
 
@@ -192,9 +205,13 @@ class RegistryStore:
             try:
                 with embeddings_pkl.open("rb") as f:
                     values = pickle.load(f)
-                records = {path: MediaRecord.from_dict(val) for path, val in values.items()}
+                records = {
+                    path: MediaRecord.from_dict(val) for path, val in values.items()
+                }
             except Exception as e:
-                print(f"Warning: Failed to load old embeddings.pkl during migration: {e}")
+                print(
+                    f"Warning: Failed to load old embeddings.pkl during migration: {e}"
+                )
 
         index: dict[str, dict[str, Any]] = {}
         if file_index_json.exists():
@@ -202,7 +219,9 @@ class RegistryStore:
                 with file_index_json.open("r", encoding="utf-8") as f:
                     index = json.load(f)
             except Exception as e:
-                print(f"Warning: Failed to load old file_index.json during migration: {e}")
+                print(
+                    f"Warning: Failed to load old file_index.json during migration: {e}"
+                )
 
         clusters: dict[str, Any] = {}
         if clusters_json.exists():
@@ -210,7 +229,9 @@ class RegistryStore:
                 with clusters_json.open("r", encoding="utf-8") as f:
                     clusters = json.load(f)
             except Exception as e:
-                print(f"Warning: Failed to load old clusters.json during migration: {e}")
+                print(
+                    f"Warning: Failed to load old clusters.json during migration: {e}"
+                )
 
         self.save(people, records, index, clusters)
 
@@ -252,7 +273,9 @@ class RegistryStore:
         self._init_db()
         records: dict[str, MediaRecord] = {}
         with self._get_connection() as conn:
-            media_cursor = conn.execute("SELECT id, path, sha256, mtime, size FROM media")
+            media_cursor = conn.execute(
+                "SELECT id, path, sha256, mtime, size FROM media"
+            )
             media_rows = media_cursor.fetchall()
             if not media_rows:
                 return {}
@@ -358,10 +381,14 @@ class RegistryStore:
         self._init_db()
         index: dict[str, dict[str, Any]] = {}
         with self._get_connection() as conn:
-            media_cursor = conn.execute("SELECT id, path, sha256, destination FROM media")
+            media_cursor = conn.execute(
+                "SELECT id, path, sha256, destination FROM media"
+            )
             media_rows = media_cursor.fetchall()
 
-            faces_cursor = conn.execute("SELECT media_id, person_id FROM faces WHERE person_id IS NOT NULL")
+            faces_cursor = conn.execute(
+                "SELECT media_id, person_id FROM faces WHERE person_id IS NOT NULL"
+            )
             persons_by_media: dict[int, set[str]] = {}
             for row in faces_cursor:
                 media_id = row["media_id"]
@@ -374,7 +401,9 @@ class RegistryStore:
                 m_id = row["id"]
                 # Reconstruct absolute path for the current platform
                 path = self._to_abs(row["path"])
-                destination = self._to_abs(row["destination"]) if row["destination"] else ""
+                destination = (
+                    self._to_abs(row["destination"]) if row["destination"] else ""
+                )
                 person_ids = sorted(list(persons_by_media.get(m_id, set())))
                 index[path] = {
                     "hash": row["sha256"] or "",
@@ -419,7 +448,9 @@ class RegistryStore:
     def load_clusters(self) -> dict[str, Any]:
         self._init_db()
         with self._get_connection() as conn:
-            row = conn.execute("SELECT value FROM settings WHERE key = 'clusters'").fetchone()
+            row = conn.execute(
+                "SELECT value FROM settings WHERE key = 'clusters'"
+            ).fetchone()
             if row and row["value"]:
                 try:
                     return json.loads(row["value"])
@@ -441,7 +472,7 @@ class RegistryStore:
                 placeholders = ",".join("?" for _ in active_person_ids)
                 conn.execute(
                     f"DELETE FROM persons WHERE id NOT IN ({placeholders})",
-                    list(active_person_ids)
+                    list(active_person_ids),
                 )
             else:
                 conn.execute("DELETE FROM persons")
@@ -470,16 +501,23 @@ class RegistryStore:
                         centroid_blob,
                         prototypes_blob,
                         now_str,
-                    )
+                    ),
                 )
 
             # Build stored (relative) path set for the DELETE query
             active_stored_paths = {self._to_stored(p) for p in records.keys()}
             if active_stored_paths:
-                conn.execute("CREATE TEMP TABLE IF NOT EXISTS active_media_paths (path TEXT UNIQUE)")
+                conn.execute(
+                    "CREATE TEMP TABLE IF NOT EXISTS active_media_paths (path TEXT UNIQUE)"
+                )
                 conn.execute("DELETE FROM active_media_paths")
-                conn.executemany("INSERT INTO active_media_paths (path) VALUES (?)", [(p,) for p in active_stored_paths])
-                conn.execute("DELETE FROM media WHERE path NOT IN (SELECT path FROM active_media_paths)")
+                conn.executemany(
+                    "INSERT INTO active_media_paths (path) VALUES (?)",
+                    [(p,) for p in active_stored_paths],
+                )
+                conn.execute(
+                    "DELETE FROM media WHERE path NOT IN (SELECT path FROM active_media_paths)"
+                )
             else:
                 conn.execute("DELETE FROM media")
 
@@ -487,6 +525,7 @@ class RegistryStore:
                 stored_path = self._to_stored(path)
                 suffix = Path(path).suffix.lower()
                 from .extractor import VIDEO_EXTENSIONS
+
                 media_type = "video" if suffix in VIDEO_EXTENSIONS else "image"
 
                 destination = None
@@ -507,10 +546,19 @@ class RegistryStore:
                         processed = 1,
                         destination = excluded.destination
                     """,
-                    (stored_path, record.hash, record.mtime_ns, record.size, media_type, destination)
+                    (
+                        stored_path,
+                        record.hash,
+                        record.mtime_ns,
+                        record.size,
+                        media_type,
+                        destination,
+                    ),
                 )
 
-                media_row = conn.execute("SELECT id FROM media WHERE path = ?", (stored_path,)).fetchone()
+                media_row = conn.execute(
+                    "SELECT id FROM media WHERE path = ?", (stored_path,)
+                ).fetchone()
                 media_id = media_row["id"]
 
                 conn.execute("DELETE FROM faces WHERE media_id = ?", (media_id,))
@@ -536,7 +584,7 @@ class RegistryStore:
                             face.confidence,
                             face.quality_score,
                             face.frame,
-                        )
+                        ),
                     )
 
             clusters_str = json.dumps(clusters or {})
@@ -546,7 +594,7 @@ class RegistryStore:
                 VALUES ('clusters', ?)
                 ON CONFLICT(key) DO UPDATE SET value = excluded.value
                 """,
-                (clusters_str,)
+                (clusters_str,),
             )
 
     def rename_person(

@@ -35,7 +35,10 @@ class FsortService:
         clusters = self.store.load_clusters()
 
         from .extractor import iter_media
-        files = sorted(iter_media(input_root, excluded=[self.output_root, self.cache_root]))
+
+        files = sorted(
+            iter_media(input_root, excluded=[self.output_root, self.cache_root])
+        )
         scanned = len(files)
 
         current = {str(path) for path in files}
@@ -87,6 +90,7 @@ class FsortService:
 
             try:
                 from .pipeline import _sha256
+
                 digest = _sha256(path)
                 if self.config.cache_enabled and cached and cached.hash == digest:
                     cached.mtime_ns = stat.st_mtime_ns
@@ -156,6 +160,7 @@ class FsortService:
         from .clip_encoder import ClipVisualEncoder, serialize_clip_embedding
 
         import onnxruntime as ort
+
         available = ort.get_available_providers()
         if self.config.gpu and "CUDAExecutionProvider" in available:
             providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
@@ -187,6 +192,7 @@ class FsortService:
                 continue
             try:
                 from .extractor import VIDEO_EXTENSIONS
+
                 if path.suffix.lower() in VIDEO_EXTENSIONS:
                     embedding = _clip_encode_video_frame(encoder, path)
                 else:
@@ -215,6 +221,7 @@ class FsortService:
         from .clip_encoder import ClipTextualEncoder, deserialize_clip_embedding
 
         import onnxruntime as ort
+
         available = ort.get_available_providers()
         if self.config.gpu and "CUDAExecutionProvider" in available:
             providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
@@ -236,10 +243,18 @@ class FsortService:
         if not blobs:
             return []
 
-        media_ids = list(blobs.keys())
+        embeddings = [
+            (media_id, embedding)
+            for media_id, blob in blobs.items()
+            if (embedding := deserialize_clip_embedding(blob)) is not None
+        ]
+        if not embeddings:
+            return []
+
+        media_ids = [media_id for media_id, _ in embeddings]
         # Stack into matrix for vectorized cosine similarity
         matrix = np.stack(
-            [deserialize_clip_embedding(blobs[mid]) for mid in media_ids], axis=0
+            [embedding for _, embedding in embeddings], axis=0
         )  # shape: (N, D)
         # Normalize rows
         norms = np.linalg.norm(matrix, axis=1, keepdims=True)
@@ -262,14 +277,16 @@ class FsortService:
                 ).fetchone()
                 if not row:
                     continue
-                results.append({
-                    "id": mid,
-                    "filename": Path(self.store._to_abs(row["path"])).name,
-                    "type": row["media_type"],
-                    "score": round(score, 4),
-                    "thumbnail_url": f"/api/media/{mid}/thumbnail",
-                    "media_url": f"/api/media/{mid}",
-                })
+                results.append(
+                    {
+                        "id": mid,
+                        "filename": Path(self.store._to_abs(row["path"])).name,
+                        "type": row["media_type"],
+                        "score": round(score, 4),
+                        "thumbnail_url": f"/api/media/{mid}/thumbnail",
+                        "media_url": f"/api/media/{mid}",
+                    }
+                )
         return results
 
     def organize(self, input_root: Path | None = None) -> dict[str, int]:
@@ -294,6 +311,7 @@ class FsortService:
         recompute_centroids(people, records)
 
         from .cli import _input_root
+
         in_root = _input_root(input_root, records)
 
         index = build_index(records, people, in_root, self.output_root)
@@ -347,6 +365,7 @@ class FsortService:
         recompute_centroids(people, records)
 
         from .cli import _input_root
+
         in_root = _input_root(input_root, records)
 
         index = build_index(records, people, in_root, self.output_root)
@@ -383,12 +402,12 @@ class FsortService:
         people = self.store.load_people()
 
         from .registry import resolve_person, validate_display_name
+
         person = resolve_person(people, person_val)
         name = validate_display_name(new_name)
 
         if any(
-            other.id != person.id
-            and other.display_name.casefold() == name.casefold()
+            other.id != person.id and other.display_name.casefold() == name.casefold()
             for other in people
         ):
             raise ValueError(f"Display name already exists: {name}")
@@ -403,6 +422,7 @@ class FsortService:
                 # Target already exists (partial rename or collision) — move
                 # individual files so we don't clobber anything.
                 import shutil
+
                 new_folder.mkdir(parents=True, exist_ok=True)
                 for item in old_folder.iterdir():
                     dest_item = new_folder / item.name
@@ -434,12 +454,14 @@ class FsortService:
         old_index = self.store.load_index()
 
         from .registry import merge_people, resolve_person
+
         source_person = resolve_person(people, source_val)
         self._delete_person_thumbnail(source_person.display_name)
 
         person = merge_people(people, records, target_val, source_val)
 
         from .cli import _input_root
+
         in_root = _input_root(input_root, records)
         index = build_index(records, people, in_root, self.output_root)
 
@@ -456,12 +478,14 @@ class FsortService:
         old_index = self.store.load_index()
 
         from .registry import split_person, resolve_person
+
         person = resolve_person(people, person_val)
         self._delete_person_thumbnail(person.display_name)
 
         released = split_person(people, records, person_val)
 
         from .cli import _input_root
+
         in_root = _input_root(input_root, records)
         index = build_index(records, people, in_root, self.output_root)
 
@@ -475,6 +499,7 @@ class FsortService:
     def _delete_person_thumbnail(self, display_name: str) -> None:
         try:
             from .registry import validate_display_name
+
             folder_name = validate_display_name(display_name)
             thumb_path = self.output_root / folder_name / "thumbnail_fsort.jpg"
             if thumb_path.is_file():
@@ -498,7 +523,6 @@ class FsortService:
         Loads only the faces for this specific person from the DB so it can be
         called cheaply during a rename without touching unrelated records.
         """
-        from collections import defaultdict
         import cv2
         import numpy as np
         from .registry import validate_display_name
@@ -635,6 +659,7 @@ class FsortService:
                     f"{person.id}: count is {person.embedding_count}, expected {counts[person.id]}"
                 )
             from .registry import validate_display_name
+
             try:
                 validate_display_name(person.display_name)
             except ValueError as error:
@@ -646,6 +671,7 @@ class FsortService:
 
     def create_person(self, name: str) -> Person:
         from .registry import validate_display_name
+
         people = self.store.load_people()
         name = validate_display_name(name)
         if any(p.display_name.casefold() == name.casefold() for p in people):
@@ -668,7 +694,7 @@ class FsortService:
     ) -> tuple[int, list[dict[str, Any]]]:
         self.store._init_db()
         search_pattern = f"%{search}%" if search else "%"
-        
+
         # Mapping sort fields to SQL order columns
         sort_mapping = {
             "name": "display_name",
@@ -721,18 +747,22 @@ class FsortService:
         """
 
         with self.store._get_connection() as conn:
-            total = conn.execute(total_query, (search_pattern, min_media_count)).fetchone()[0]
+            total = conn.execute(
+                total_query, (search_pattern, min_media_count)
+            ).fetchone()[0]
             cursor = conn.execute(query, (search_pattern, min_media_count, limit, skip))
             items = []
             for row in cursor:
-                items.append({
-                    "id": row["id"],
-                    "display_name": row["display_name"],
-                    "thumbnail_url": f"/api/person/{row['id']}/thumbnail",
-                    "image_count": row["image_count"],
-                    "video_count": row["video_count"],
-                    "media_count": row["media_count"],
-                })
+                items.append(
+                    {
+                        "id": row["id"],
+                        "display_name": row["display_name"],
+                        "thumbnail_url": f"/api/person/{row['id']}/thumbnail",
+                        "image_count": row["image_count"],
+                        "video_count": row["video_count"],
+                        "media_count": row["media_count"],
+                    }
+                )
         return total, items
 
     def list_person_media_paginated(
@@ -777,7 +807,9 @@ class FsortService:
             params = (limit, skip)
             total_params = ()
         else:
-            total_query = "SELECT COUNT(DISTINCT media_id) FROM faces WHERE person_id = ?"
+            total_query = (
+                "SELECT COUNT(DISTINCT media_id) FROM faces WHERE person_id = ?"
+            )
             query = f"""
                 SELECT DISTINCT m.id, m.path, m.sha256, m.mtime, m.size, m.media_type, m.destination
                 FROM media m
@@ -795,23 +827,30 @@ class FsortService:
             items = []
             for row in cursor:
                 import datetime
+
                 try:
                     mtime_sec = row["mtime"] / 1_000_000_000.0
-                    dt = datetime.datetime.fromtimestamp(mtime_sec, tz=datetime.timezone.utc)
+                    dt = datetime.datetime.fromtimestamp(
+                        mtime_sec, tz=datetime.timezone.utc
+                    )
                     created_str = dt.strftime("%Y-%m-%d")
                 except Exception:
                     created_str = ""
-                items.append({
-                    "id": row["id"],
-                    "thumbnail_url": f"/api/media/{row['id']}/thumbnail",
-                    "media_url": f"/api/media/{row['id']}",
-                    "type": row["media_type"],
-                    "filename": Path(row["path"]).name,
-                    "created": created_str,
-                })
+                items.append(
+                    {
+                        "id": row["id"],
+                        "thumbnail_url": f"/api/media/{row['id']}/thumbnail",
+                        "media_url": f"/api/media/{row['id']}",
+                        "type": row["media_type"],
+                        "filename": Path(row["path"]).name,
+                        "created": created_str,
+                    }
+                )
         return total, items
 
-    def reassign_media(self, media_id: int, person_id: str | None, input_root: Path | None = None) -> None:
+    def reassign_media(
+        self, media_id: int, person_id: str | None, input_root: Path | None = None
+    ) -> None:
         self.store._init_db()
         if person_id == "":
             person_id = None
@@ -819,7 +858,9 @@ class FsortService:
         with self.store._get_connection() as conn:
             # Validate target person exists
             if person_id is not None:
-                row = conn.execute("SELECT id FROM persons WHERE id = ?", (person_id,)).fetchone()
+                row = conn.execute(
+                    "SELECT id FROM persons WHERE id = ?", (person_id,)
+                ).fetchone()
                 if not row:
                     raise ValueError(f"Person {person_id} does not exist")
 
@@ -837,15 +878,19 @@ class FsortService:
                 raise ValueError(f"Media {media_id} not found")
             abs_path = Path(self.store._to_abs(media_row["path"]))
             old_dest_stored = media_row["destination"]
-            old_dest = Path(self.store._to_abs(old_dest_stored)) if old_dest_stored else None
+            old_dest = (
+                Path(self.store._to_abs(old_dest_stored)) if old_dest_stored else None
+            )
 
             count = len(face_rows)
             if count > 0:
                 conn.execute(
-                    "UPDATE faces SET person_id = ? WHERE media_id = ?", (person_id, media_id)
+                    "UPDATE faces SET person_id = ? WHERE media_id = ?",
+                    (person_id, media_id),
                 )
             elif person_id is not None:
                 from .storage import serialize_embedding
+
                 conn.execute(
                     "INSERT INTO faces (media_id, person_id, embedding) VALUES (?, ?, ?)",
                     (media_id, person_id, serialize_embedding([])),
@@ -857,25 +902,24 @@ class FsortService:
 
         if person_id is not None and person_id in people_by_id:
             from .registry import validate_display_name
+
             folder = validate_display_name(people_by_id[person_id].display_name)
         else:
             folder = "Unknown"
 
-        try:
-            relative = abs_path.relative_to(abs_path.parent.parent)
-        except ValueError:
-            relative = Path(abs_path.name)
         new_dest = self.output_root / folder / abs_path.name
 
         # --- Move the output file (only this one file) ---
         if old_dest and old_dest != new_dest and old_dest.is_file():
             new_dest.parent.mkdir(parents=True, exist_ok=True)
             import shutil
+
             if self.config.copy_mode:
                 shutil.copy2(str(old_dest), str(new_dest))
             else:
                 try:
                     import os
+
                     os.link(str(abs_path), str(new_dest))
                 except OSError:
                     shutil.copy2(str(abs_path), str(new_dest))
@@ -891,7 +935,9 @@ class FsortService:
                 pass
         elif not new_dest.exists() and abs_path.is_file():
             new_dest.parent.mkdir(parents=True, exist_ok=True)
-            import shutil, os
+            import os
+            import shutil
+
             if self.config.copy_mode:
                 shutil.copy2(str(abs_path), str(new_dest))
             else:
@@ -925,11 +971,14 @@ class FsortService:
             ]
             person.embedding_count = len(embeddings)
             if embeddings:
-                person.centroid = normalized(np.mean(np.vstack(embeddings), axis=0)).tolist()
+                person.centroid = normalized(
+                    np.mean(np.vstack(embeddings), axis=0)
+                ).tolist()
                 if len(embeddings) <= 30:
                     person.prototypes = [e.tolist() for e in embeddings]
                 else:
                     from sklearn.cluster import KMeans
+
                     km = KMeans(n_clusters=30, n_init="auto", random_state=42)
                     km.fit(np.vstack(embeddings))
                     person.prototypes = km.cluster_centers_.tolist()
@@ -939,6 +988,7 @@ class FsortService:
 
             # Persist updated centroid/count directly to DB
             from .storage import serialize_embedding, serialize_prototypes
+
             with self.store._get_connection() as conn:
                 conn.execute(
                     """UPDATE persons SET embedding_count = ?, centroid = ?, prototypes = ?
@@ -954,7 +1004,6 @@ class FsortService:
             # Regenerate thumbnail for this person only
             self._generate_person_thumbnail(person)
 
-
     def search(self, query: str) -> dict[str, list[dict[str, Any]]]:
         self.store._init_db()
         people_results = []
@@ -962,28 +1011,32 @@ class FsortService:
         with self.store._get_connection() as conn:
             people_cursor = conn.execute(
                 "SELECT id, display_name FROM persons WHERE display_name LIKE ?",
-                (f"%{query}%",)
+                (f"%{query}%",),
             )
             for row in people_cursor:
-                people_results.append({
-                    "id": row["id"],
-                    "display_name": row["display_name"],
-                    "thumbnail_url": f"/api/person/{row['id']}/thumbnail",
-                })
+                people_results.append(
+                    {
+                        "id": row["id"],
+                        "display_name": row["display_name"],
+                        "thumbnail_url": f"/api/person/{row['id']}/thumbnail",
+                    }
+                )
 
             media_cursor = conn.execute(
                 "SELECT id, path, media_type FROM media WHERE path LIKE ? OR destination LIKE ? LIMIT 100",
-                (f"%{query}%", f"%{query}%")
+                (f"%{query}%", f"%{query}%"),
             )
             for row in media_cursor:
                 filename = Path(row["path"]).name
-                media_results.append({
-                    "id": row["id"],
-                    "filename": filename,
-                    "type": row["media_type"],
-                    "thumbnail_url": f"/api/media/{row['id']}/thumbnail",
-                    "media_url": f"/api/media/{row['id']}",
-                })
+                media_results.append(
+                    {
+                        "id": row["id"],
+                        "filename": filename,
+                        "type": row["media_type"],
+                        "thumbnail_url": f"/api/media/{row['id']}/thumbnail",
+                        "media_url": f"/api/media/{row['id']}",
+                    }
+                )
         return {"people": people_results, "media": media_results}
 
 

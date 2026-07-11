@@ -25,9 +25,9 @@ def client_with_service(
 
 
 def test_get_people_and_stats(
-    client_with_service: tuple[TestClient, FsortService]
+    client_with_service: tuple[TestClient, FsortService],
 ) -> None:
-    client, service = client_with_service
+    client, _ = client_with_service
 
     # Retrieve initial empty state
     resp = client.get("/people")
@@ -80,16 +80,12 @@ def test_maintenance_endpoints(
     )
 
     # Test POST /rename
-    resp = client.post(
-        "/rename", json={"person": "Person_001", "new_name": "Mom"}
-    )
+    resp = client.post("/rename", json={"person": "Person_001", "new_name": "Mom"})
     assert resp.status_code == 200
     assert resp.json()["message"] == "Renamed OK"
 
     # Test POST /merge
-    resp = client.post(
-        "/merge", json={"target": "Person_001", "source": "Person_002"}
-    )
+    resp = client.post("/merge", json={"target": "Person_001", "source": "Person_002"})
     assert resp.status_code == 200
     assert resp.json()["message"] == "Merged OK"
 
@@ -109,7 +105,6 @@ def test_extract_and_organize_endpoints(
     source.mkdir()
 
     # Reset progress state
-    global progress_state
     progress_state["status"] = "idle"
     progress_state["message"] = ""
 
@@ -188,7 +183,9 @@ def test_new_api_endpoints(
         "reassign_media",
         lambda media_id, p_id, input_root=None: None,
     )
-    resp = client.post("/api/media/reassign", json={"media_id": 42, "person_id": person_id})
+    resp = client.post(
+        "/api/media/reassign", json={"media_id": 42, "person_id": person_id}
+    )
     assert resp.status_code == 200
     assert resp.json()["status"] == "success"
 

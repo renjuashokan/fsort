@@ -71,12 +71,13 @@ def test_thumbnail_generation_and_cleanup(
     assert person_folder.exists()
     assert (person_folder / "a.jpg").exists()
     assert (person_folder / "b.jpg").exists()
-    
+
     thumb_path = person_folder / "thumbnail_fsort.jpg"
     assert thumb_path.exists()
 
     # Read generated thumbnail and verify shape
     thumb = cv2.imread(str(thumb_path))
+    assert thumb is not None
     assert thumb.shape == (256, 256, 3)
 
     # Verify that red image (a.jpg) was chosen because its embedding [1.0, 0.0]
@@ -102,10 +103,10 @@ def test_thumbnail_generation_and_cleanup(
     # 3. Test Rename Cleanup
     # Rename person to "Jane Doe"
     service.rename("Person_001", "Jane Doe", source)
-    
+
     # Verify old folder is removed (meaning thumbnail inside it was cleaned up first)
     assert not person_folder.exists()
-    
+
     # Verify new folder has the thumbnail
     new_folder = output / "Jane Doe"
     assert new_folder.exists()
@@ -114,6 +115,6 @@ def test_thumbnail_generation_and_cleanup(
     # 4. Test Split Cleanup
     # Split Jane Doe
     service.split("Jane Doe", source)
-    
+
     # Verify the thumbnail is cleaned up and folder is removed or empty of thumbnails
     assert not (new_folder / "thumbnail_fsort.jpg").exists()
