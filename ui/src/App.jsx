@@ -77,6 +77,14 @@ export default function App() {
     galleryState.setMedia([]);
   };
 
+  const handleViewPersonFromViewer = (person) => {
+    setViewerOpen(false);
+    setViewerIndex(null);
+    setSemanticViewerMedia(null);
+    handleSelectPerson(person);
+    scrollToTop();
+  };
+
   const handleReassignMedia = async (mediaId, targetPersonId) => {
     setIsReassigning(true);
     try {
@@ -218,6 +226,7 @@ export default function App() {
           viewerPeople={semanticViewerMedia ? [] : peopleState.viewerPeople}
           onReassign={semanticViewerMedia ? () => {} : handleReassignMedia}
           onCreateNewPerson={() => setCreateOpen(true)}
+          onViewPerson={handleViewPersonFromViewer}
           isReassigning={isReassigning}
           peopleRefreshKey={viewerPeopleRefreshKey}
         />

@@ -2,7 +2,11 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { X, ChevronLeft, ChevronRight, Info, Users, Pencil, ChevronDown, ChevronUp } from "lucide-react";
 import { api } from "../api/facesortApi";
 
-export default function MediaViewer({
+export default function MediaViewer(props) {
+  return <MediaViewerContent key={props.viewerIndex} {...props} />;
+}
+
+function MediaViewerContent({
   media,
   viewerIndex,
   onClose,
@@ -11,6 +15,7 @@ export default function MediaViewer({
   viewerPeople,
   onReassign,
   onCreateNewPerson,
+  onViewPerson,
   isReassigning = false,
   peopleRefreshKey = 0,
 }) {
@@ -26,43 +31,50 @@ export default function MediaViewer({
   const [highlightIdx, setHighlightIdx] = useState(0);
 
   // People in this photo
-  const [mediaPeople, setMediaPeople] = useState([]);
-  const [peopleLoading, setPeopleLoading] = useState(false);
+  const [peopleForMedia, setPeopleForMedia] = useState({
+    mediaId: null,
+    refreshKey: null,
+    people: [],
+  });
   // Collapsible edit section
   const [editOpen, setEditOpen] = useState(false);
 
   const currentViewerMedia =
     viewerIndex !== null && media ? media[viewerIndex] : null;
+  const currentViewerMediaId = currentViewerMedia?.id;
+  const mediaPeople =
+    peopleForMedia.mediaId === currentViewerMediaId &&
+    peopleForMedia.refreshKey === peopleRefreshKey
+      ? peopleForMedia.people
+      : [];
+  const peopleLoading =
+    Boolean(currentViewerMediaId) &&
+    (peopleForMedia.mediaId !== currentViewerMediaId ||
+      peopleForMedia.refreshKey !== peopleRefreshKey);
 
   // Fetch people for the current media item whenever it changes
   useEffect(() => {
-    if (!currentViewerMedia) {
-      setMediaPeople([]);
-      return;
-    }
+    if (!currentViewerMediaId) return undefined;
     let cancelled = false;
-    setPeopleLoading(true);
-    api.getMediaPeople(currentViewerMedia.id).then((people) => {
+    api.getMediaPeople(currentViewerMediaId).then((people) => {
       if (!cancelled) {
-        setMediaPeople(people || []);
-        setPeopleLoading(false);
+        setPeopleForMedia({
+          mediaId: currentViewerMediaId,
+          refreshKey: peopleRefreshKey,
+          people: people || [],
+        });
       }
     }).catch(() => {
       if (!cancelled) {
-        setMediaPeople([]);
-        setPeopleLoading(false);
+        setPeopleForMedia({
+          mediaId: currentViewerMediaId,
+          refreshKey: peopleRefreshKey,
+          people: [],
+        });
       }
     });
     return () => { cancelled = true; };
-  }, [currentViewerMedia?.id, peopleRefreshKey]);
-
-  // Reset edit section when navigating
-  useEffect(() => {
-    setEditOpen(false);
-    setPending(null);
-    setSearchQuery("");
-    setDropdownOpen(false);
-  }, [viewerIndex]);
+  }, [currentViewerMediaId, peopleRefreshKey]);
 
   const navigateViewer = useCallback(
     (direction) => {
@@ -140,8 +152,6 @@ export default function MediaViewer({
   }, [dropdownOpen]);
 
   if (!currentViewerMedia) return null;
-
-  const canEdit = !!selectedPerson || mediaPeople.length > 0 || !selectedPerson;
 
   return (
     <div
@@ -295,7 +305,11 @@ export default function MediaViewer({
               ) : (
                 <div className="flex flex-wrap gap-3">
                   {mediaPeople.map((person) => (
-                    <PersonAvatar key={person.id} person={person} />
+                    <PersonAvatar
+                      key={person.id}
+                      person={person}
+                      onClick={() => onViewPerson(person)}
+                    />
                   ))}
                 </div>
               )}
@@ -469,11 +483,16 @@ export default function MediaViewer({
 }
 
 /* ── Person Avatar Sub-component ── */
-function PersonAvatar({ person }) {
+function PersonAvatar({ person, onClick }) {
   const [imgError, setImgError] = useState(false);
 
   return (
-    <div className="flex flex-col items-center gap-1.5 group cursor-default">
+    <button
+      type="button"
+      onClick={onClick}
+      title={`Open ${person.display_name}'s gallery`}
+      className="flex flex-col items-center gap-1.5 group cursor-pointer rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+    >
       <div className="relative w-14 h-14 rounded-full overflow-hidden border-2 border-slate-700/60 group-hover:border-violet-500/60 transition-all shadow-lg shadow-black/40 ring-2 ring-transparent group-hover:ring-violet-500/20">
         {!imgError ? (
           <img
@@ -491,6 +510,6 @@ function PersonAvatar({ person }) {
       <span className="text-[10px] font-semibold text-slate-300 group-hover:text-violet-300 transition-colors text-center max-w-[60px] truncate leading-tight">
         {person.display_name}
       </span>
-    </div>
+    </button>
   );
 }
