@@ -18,6 +18,7 @@ jobs:
       build-name: ${{ steps.set-artifact-props.outputs.build-name }}
       version: ${{ steps.set-artifact-props.outputs.version }}
       deb-version: ${{ steps.set-artifact-props.outputs.deb-version }}
+      arch-version: ${{ steps.set-artifact-props.outputs.arch-version }}
 
     steps:
     - name: Set artifact name and development version
@@ -41,13 +42,19 @@ jobs:
         CLEAN_DEB_NAME="$(echo "$CLEAN_NAME" | sed -e 's/_/-/g')"
         DEB_VERSION="1.0.0+${CLEAN_DEB_NAME}.${RUN_NUMBER}"
 
+        # Create an Arch-compatible version (pkgver cannot contain hyphens)
+        CLEAN_ARCH_NAME="$(echo "$CLEAN_NAME" | sed -e 's/-/./g')"
+        ARCH_VERSION="1.0.0.${CLEAN_ARCH_NAME}.${RUN_NUMBER}"
+
         echo "build-name=$VERSION" >> $GITHUB_OUTPUT
         echo "version=$VERSION" >> $GITHUB_OUTPUT
         echo "deb-version=$DEB_VERSION" >> $GITHUB_OUTPUT
+        echo "arch-version=$ARCH_VERSION" >> $GITHUB_OUTPUT
 
         echo "Using artifact name: fsort-${VERSION}"
         echo "Using version: $VERSION"
         echo "Using Debian version: $DEB_VERSION"
+        echo "Using Arch version: $ARCH_VERSION"
 
   build-ui:
     name: Build React UI
@@ -125,8 +132,62 @@ jobs:
         name: fsort_debian_${{ needs.setup.outputs.build-name }}_${{ matrix.arch }}
         path: fsort_${{ needs.setup.outputs.build-name }}_${{ matrix.arch }}.deb
 
+  package-arch:
+    name: Create Arch Package
+    needs: [setup, build-ui]
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:base-devel
+
+    env:
+      PIP_BREAK_SYSTEM_PACKAGES: "1"
+
+    steps:
+    - name: Install build dependencies
+      run: |
+        pacman -Syu --noconfirm
+        pacman -S --noconfirm python python-pip python-hatchling nodejs npm git
+
+    - name: Checkout code
+      uses: actions/checkout@v6
+
+    - name: Download UI build artifact
+      uses: actions/download-artifact@v6
+      with:
+        name: ui-dist
+        path: ui/dist
+
+    - name: Verify UI assets
+      run: |
+        echo "Verifying ui/dist directory..."
+        if [ ! -d "ui/dist" ] || [ ! -f "ui/dist/index.html" ]; then
+          echo "ERROR: ui/dist directory is missing or incomplete"
+          exit 1
+        fi
+        echo "✅ UI dist verified"
+
+    - name: Build Arch package
+      run: |
+        # makepkg cannot run as root — create a non-root builder user
+        useradd -m builder
+        chown -R builder:builder .
+
+        chmod +x build-pkg.sh
+        runuser -u builder -- ./build-pkg.sh "${{ needs.setup.outputs.arch-version }}"
+
+        mv outputs/fsort-*.pkg.tar.zst "fsort_${{ needs.setup.outputs.build-name }}.pkg.tar.zst"
+
+        echo "Arch package created:"
+        ls -la "fsort_${{ needs.setup.outputs.build-name }}.pkg.tar.zst"
+
+    - name: Upload Arch package
+      uses: actions/upload-artifact@v4
+      with:
+        name: fsort_arch_${{ needs.setup.outputs.build-name }}
+        path: "fsort_${{ needs.setup.outputs.build-name }}.pkg.tar.zst"
+
   summary:
-    needs: package
+    needs: [package, package-arch]
     runs-on: ubuntu-latest
     steps:
     - name: Download all artifacts
@@ -144,6 +205,15 @@ jobs:
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### 📦 Debian Packages:" >> $GITHUB_STEP_SUMMARY
         for file in all-artifacts/*.deb; do
+          if [ -f "$file" ]; then
+            filename=$(basename "$file")
+            size=$(ls -lh "$file" | awk '{print $5}')
+            echo "- $filename ($size)" >> $GITHUB_STEP_SUMMARY
+          fi
+        done
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 📦 Arch Packages:" >> $GITHUB_STEP_SUMMARY
+        for file in all-artifacts/*.pkg.tar.zst; do
           if [ -f "$file" ]; then
             filename=$(basename "$file")
             size=$(ls -lh "$file" | awk '{print $5}')
