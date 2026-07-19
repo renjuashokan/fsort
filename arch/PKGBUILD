@@ -1,0 +1,64 @@
+# Maintainer: Renju Ashokan <renjuashokan@gmail.com>
+pkgname=fsort
+pkgver=0.1.1
+pkgrel=1
+pkgdesc="Incremental, offline face-based photo organizer with self-hosted Web UI"
+arch=('any')
+url="https://github.com/renjuashokan/fsort"
+license=('custom')
+depends=('python' 'python-pip' 'libgl' 'glib2' 'ffmpeg')
+optdepends=('cuda: GPU acceleration via onnxruntime-gpu')
+install=fsort.install
+
+# This PKGBUILD is designed to be used from the repo root via build-pkg.sh.
+# Source files are copied into $srcdir by that script before makepkg runs.
+source=()
+sha256sums=()
+
+prepare() {
+    # Nothing to fetch — sources are already in $srcdir courtesy of build-pkg.sh
+    :
+}
+
+build() {
+    # Build the React frontend if not already built
+    if [ -d "${srcdir}/ui" ] && [ ! -d "${srcdir}/ui/dist" ]; then
+        echo "Building React frontend..."
+        (cd "${srcdir}/ui" && npm install && npm run build)
+    fi
+}
+
+package() {
+    # Install application files
+    install -dm755 "${pkgdir}/opt/fsort"
+    cp -r "${srcdir}/fsort"          "${pkgdir}/opt/fsort/"
+    cp -r "${srcdir}/ui"             "${pkgdir}/opt/fsort/"
+    cp    "${srcdir}/pyproject.toml" "${pkgdir}/opt/fsort/"
+
+    install -Dm644 "${srcdir}/LICENSE"   "${pkgdir}/opt/fsort/LICENSE"   2>/dev/null || true
+    install -Dm644 "${srcdir}/README.md" "${pkgdir}/opt/fsort/README.md" 2>/dev/null || true
+
+    # Patch the staged pyproject.toml version to match the package version
+    sed -i "s/^version = .*/version = \"${pkgver}\"/" "${pkgdir}/opt/fsort/pyproject.toml"
+
+    # Copy the pre-built wheel so post_install can pip-install it without
+    # triggering build-backend isolation (no hatchling download needed)
+    install -Dm644 "${srcdir}"/fsort-*.whl "${pkgdir}/opt/fsort/"
+
+    # Copy all bundled dependency wheels for offline installation
+    if [ -d "${srcdir}/wheels" ]; then
+        install -dm755 "${pkgdir}/opt/fsort/wheels"
+        cp "${srcdir}"/wheels/* "${pkgdir}/opt/fsort/wheels/"
+    fi
+
+    # State / cache directories (pacman creates them; contents are not tracked)
+    install -dm755 "${pkgdir}/var/lib/fsort/cache"
+    install -dm755 "${pkgdir}/var/lib/fsort/sorted"
+
+    # Systemd service
+    install -Dm644 "${srcdir}/fsort.service" \
+        "${pkgdir}/usr/lib/systemd/system/fsort.service"
+
+    # Log directory placeholder
+    install -dm755 "${pkgdir}/var/log/fsort"
+}

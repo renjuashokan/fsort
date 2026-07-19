@@ -1,0 +1,70 @@
+post_install() {
+    # Create virtual environment
+    if [ ! -d /opt/fsort/.venv ]; then
+        echo "Creating Python virtual environment in /opt/fsort/.venv..."
+        python3 -m venv /opt/fsort/.venv
+    fi
+
+    echo "Installing fsort and dependencies (offline from bundled wheels)..."
+    # Install from the pre-built wheel — this avoids build-backend isolation
+    # (no hatchling download) AND uses bundled dependency wheels so no PyPI
+    # access is needed on the target machine.
+    FSORT_WHEEL=$(ls /opt/fsort/fsort-*.whl 2>/dev/null | head -1)
+    if [ -z "${FSORT_WHEEL}" ]; then
+        echo "ERROR: fsort wheel not found in /opt/fsort/" >&2
+        exit 1
+    fi
+    /opt/fsort/.venv/bin/pip install \
+        --no-index \
+        --find-links /opt/fsort/wheels/ \
+        "${FSORT_WHEEL}"
+
+    # Create runtime directories
+    mkdir -p /var/lib/fsort/cache
+    mkdir -p /var/lib/fsort/sorted
+    mkdir -p /var/log/fsort
+
+    # Expose face-sort on the system PATH
+    ln -sf /opt/fsort/.venv/bin/face-sort /usr/local/bin/face-sort
+
+    # Enable and start systemd service
+    systemctl daemon-reload
+    systemctl enable fsort.service
+    systemctl start fsort.service || true
+
+    echo "fsort installed. Service started on port 9876."
+}
+
+post_upgrade() {
+    echo "Upgrading fsort..."
+    FSORT_WHEEL=$(ls /opt/fsort/fsort-*.whl 2>/dev/null | head -1)
+    if [ -n "${FSORT_WHEEL}" ]; then
+        /opt/fsort/.venv/bin/pip install \
+            --no-index \
+            --find-links /opt/fsort/wheels/ \
+            --upgrade "${FSORT_WHEEL}"
+    fi
+
+    # Update the symlink in case it changed
+    ln -sf /opt/fsort/.venv/bin/face-sort /usr/local/bin/face-sort
+
+    systemctl daemon-reload
+    systemctl restart fsort.service || true
+}
+
+pre_remove() {
+    # Stop and disable the service before files are removed
+    systemctl stop fsort.service || true
+    systemctl disable fsort.service || true
+    systemctl daemon-reload
+
+    # Remove the PATH symlink
+    rm -f /usr/local/bin/face-sort
+}
+
+post_remove() {
+    # Clean up runtime data
+    rm -rf /opt/fsort
+    rm -rf /var/lib/fsort
+    rm -rf /var/log/fsort
+}
