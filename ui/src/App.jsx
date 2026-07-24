@@ -229,6 +229,16 @@ export default function App() {
           onViewPerson={handleViewPersonFromViewer}
           isReassigning={isReassigning}
           peopleRefreshKey={viewerPeopleRefreshKey}
+          totalMedia={semanticViewerMedia ? null : galleryState.totalMedia}
+          onRequestMore={
+            semanticViewerMedia
+              ? undefined
+              : () => {
+                  if (galleryState.media.length < galleryState.totalMedia) {
+                    galleryState.loadGallery(false);
+                  }
+                }
+          }
         />
       )}
     </div>

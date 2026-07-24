@@ -18,7 +18,23 @@ function MediaViewerContent({
   onViewPerson,
   isReassigning = false,
   peopleRefreshKey = 0,
+  onRequestMore,
+  totalMedia,
 }) {
+  // Auto-load next batch when within 10 items of the end
+  const PREFETCH_THRESHOLD = 10;
+  useEffect(() => {
+    if (
+      viewerIndex !== null &&
+      media &&
+      totalMedia &&
+      media.length < totalMedia &&
+      viewerIndex >= media.length - PREFETCH_THRESHOLD &&
+      onRequestMore
+    ) {
+      onRequestMore();
+    }
+  }, [viewerIndex, media, totalMedia, onRequestMore]);
   const viewerRef = useRef(null);
   const comboboxRef = useRef(null);
   // pending = { index, personId, label } — auto-invalidates when viewerIndex changes
@@ -167,7 +183,7 @@ function MediaViewerContent({
           <X className="w-5 h-5" />
         </button>
         <span className="text-xs font-semibold text-slate-400">
-          {viewerIndex + 1} / {media.length}
+          {viewerIndex + 1} / {totalMedia || media.length}
         </span>
         <div className="w-9" /> {/* spacer */}
       </div>
